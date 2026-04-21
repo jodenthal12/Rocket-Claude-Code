@@ -22,12 +22,14 @@ Usage:
 
 import sys
 import os
+import json
+import random
 import threading
 import time
 import csv
 import math
 import tkinter as tk
-from tkinter import ttk, filedialog
+from tkinter import ttk, filedialog, messagebox, simpledialog
 from collections import deque
 from datetime import datetime
 
@@ -57,6 +59,35 @@ STATE_COLORS = {
 
 HISTORY_LEN = 1200          # ~2 min at 10 Hz
 OVERLAY_COLORS = ["#ff00ff", "#ffff00", "#00ffff", "#ff8888"]
+
+# Event severity levels
+SEV_INFO = "INFO"
+SEV_WARN = "WARN"
+SEV_FAULT = "FAULT"
+SEV_COLORS = {SEV_INFO: "#88aaff", SEV_WARN: "#ff8800", SEV_FAULT: "#ff4444"}
+
+# Fault detection thresholds
+STALE_TIMEOUT_S = 3.0       # no packet for this long -> stale warning
+MAX_ALT_JUMP_M = 200.0      # single-step altitude delta > this -> fault
+MAX_ACCEL_G = 50.0          # accel > this -> fault (realistic water rocket << 30g)
+MIN_PRES_HPA = 300.0        # pressure below this is impossible at ground
+MAX_ALT_ABS_M = 3000.0      # no water rocket goes this high
+
+# Unit conversion
+FT_PER_M = 3.28084
+
+# Default config
+DEFAULT_CONFIG = {
+    "launch_detect_g": 2.0,
+    "apogee_filter_samples": 5,
+    "landing_detect_m": 2.0,
+    "telemetry_rate_hz": 10,
+    "logging_rate_hz": 20,
+    "buzzer_enable": True,
+    "sim_mode": False,
+    "units": "m",           # "m" or "ft"
+    "view_mode": "operator",  # "operator" or "debug"
+}
 
 CSV_HEADER = [
     "utc", "elapsed_s", "type", "rssi", "snr", "state",
@@ -265,6 +296,218 @@ class SerialReader:
         self.running = False
 
 
+# ── Event log ──────────────────────────────────────────────────
+class EventLog:
+    """Structured event log with timestamp / source / severity / message."""
+
+    def __init__(self, maxlen: int = 1000):
+        self.events: deque[dict] = deque(maxlen=maxlen)
+        self.lock = threading.Lock()
+        self._start = time.monotonic()
+
+    def add(self, severity: str, source: str, message: str):
+        ev = {
+            "t_wall": datetime.now().strftime("%H:%M:%S"),
+            "t_mission": time.monotonic() - self._start,
+            "severity": severity,
+            "source": source,
+            "message": message,
+        }
+        with self.lock:
+            self.events.append(ev)
+        return ev
+
+    def reset_mission_time(self):
+        self._start = time.monotonic()
+
+    def list(self, min_severity: str | None = None) -> list[dict]:
+        with self.lock:
+            evs = list(self.events)
+        if min_severity is None:
+            return evs
+        order = {SEV_INFO: 0, SEV_WARN: 1, SEV_FAULT: 2}
+        thresh = order.get(min_severity, 0)
+        return [e for e in evs if order.get(e["severity"], 0) >= thresh]
+
+    def clear(self):
+        with self.lock:
+            self.events.clear()
+
+    def export_csv(self, path: str):
+        with self.lock:
+            evs = list(self.events)
+        with open(path, "w", newline="") as f:
+            w = csv.writer(f)
+            w.writerow(["wall_time", "mission_s", "severity", "source", "message"])
+            for e in evs:
+                w.writerow([e["t_wall"], f"{e['t_mission']:.3f}",
+                            e["severity"], e["source"], e["message"]])
+
+
+# ── Preflight checklist ────────────────────────────────────────
+class PreflightChecklist:
+    """Named checks, each required or optional, auto or manual.
+
+    `all_required_passed()` gates the ARM action.
+    """
+
+    def __init__(self):
+        # key: (label, required, manual, status) — status None=unknown, True/False
+        self.items: dict[str, dict] = {
+            "radio":       {"label": "Radio link active",      "required": True,  "manual": False, "status": None},
+            "packets":     {"label": "Telemetry updating",     "required": True,  "manual": False, "status": None},
+            "battery":     {"label": "Battery voltage >= 7.0V","required": True,  "manual": False, "status": None},
+            "cont1":       {"label": "Pyro 1 continuity",      "required": True,  "manual": False, "status": None},
+            "cont2":       {"label": "Pyro 2 continuity",      "required": True,  "manual": False, "status": None},
+            "sensors":     {"label": "Sensors producing data", "required": True,  "manual": False, "status": None},
+            "sd":          {"label": "SD card writable",       "required": False, "manual": True,  "status": None},
+            "zero_alt":    {"label": "Zero-altitude calibrated","required": True, "manual": True,  "status": None},
+            "ground_pres": {"label": "Ground pressure set",    "required": False, "manual": True,  "status": None},
+            "rocket_ok":   {"label": "Rocket visually OK",     "required": True,  "manual": True,  "status": None},
+            "pad_clear":   {"label": "Pad area clear",         "required": True,  "manual": True,  "status": None},
+            "fill":        {"label": "Water/pressure set",     "required": True,  "manual": True,  "status": None},
+        }
+
+    def set_manual(self, key: str, ok: bool):
+        if key in self.items and self.items[key]["manual"]:
+            self.items[key]["status"] = ok
+
+    def update_auto(self, connected: bool, pkt_count: int, last_pkt_age: float,
+                    t: "Telemetry | None"):
+        self.items["radio"]["status"] = connected and last_pkt_age < STALE_TIMEOUT_S
+        self.items["packets"]["status"] = pkt_count > 5 and last_pkt_age < STALE_TIMEOUT_S
+        if t is None:
+            self.items["battery"]["status"] = None
+            self.items["cont1"]["status"] = None
+            self.items["cont2"]["status"] = None
+            self.items["sensors"]["status"] = None
+            return
+        self.items["battery"]["status"] = t.vbat >= 7.0 if t.vbat > 0 else None
+        self.items["cont1"]["status"] = (200 < t.cont1 < 3800) if t.cont1 else None
+        self.items["cont2"]["status"] = (200 < t.cont2 < 3800) if t.cont2 else None
+        self.items["sensors"]["status"] = (t.temp_c != 0 or t.pres_hpa != 0
+                                            or t.alt != 0 or t.accel != 0)
+
+    def all_required_passed(self) -> bool:
+        for it in self.items.values():
+            if it["required"] and it["status"] is not True:
+                return False
+        return True
+
+    def summary(self) -> tuple[int, int]:
+        required = [it for it in self.items.values() if it["required"]]
+        passed = sum(1 for it in required if it["status"] is True)
+        return passed, len(required)
+
+
+# ── Simulation source ─────────────────────────────────────────
+class SimulationSource:
+    """Generates a canned nominal water-rocket flight profile."""
+
+    def __init__(self):
+        self.t0 = time.monotonic()
+        self.max_alt_seen = 0.0
+        self.seq = 0
+
+    def reset(self):
+        self.t0 = time.monotonic()
+        self.max_alt_seen = 0.0
+        self.seq = 0
+
+    def get_packet(self) -> "Telemetry | None":
+        t_s = time.monotonic() - self.t0
+        self.seq += 1
+
+        # Profile: 0-3s idle, 3-3.5s boost, 3.5-6s coast to apogee ~40m,
+        # 6-10s descent, 10s+ landed
+        if t_s < 3.0:
+            state, alt, vel, acc = 1, 0.0, 0.0, 1.0   # READY
+        elif t_s < 3.5:
+            frac = (t_s - 3.0) / 0.5
+            state = 3                                   # BOOST
+            acc = 12.0 + random.uniform(-1, 1)
+            vel = frac * 28.0
+            alt = 0.5 * vel * frac * 0.5
+        elif t_s < 6.0:
+            state = 4                                   # COAST
+            v_apogee_t = 6.0
+            vel = 28.0 - 9.81 * (t_s - 3.5)
+            alt = 28.0 * (t_s - 3.5) - 0.5 * 9.81 * (t_s - 3.5) ** 2 + 7.0
+            acc = 1.0 + random.uniform(-0.2, 0.2)
+        elif t_s < 10.0:
+            state = 5                                   # DESCENT
+            vel = -5.0 + random.uniform(-0.5, 0.5)
+            dt = t_s - 6.0
+            alt = max(0.0, 40.0 - 5.0 * dt)
+            acc = 1.0 + random.uniform(-0.3, 0.3)
+        else:
+            state, alt, vel, acc = 6, 0.0, 0.0, 1.0     # LANDED
+
+        alt += random.uniform(-0.2, 0.2)
+        self.max_alt_seen = max(self.max_alt_seen, alt)
+
+        t = Telemetry()
+        t.packet_type = "F"
+        t.time_s = t_s
+        t.state = state
+        t.alt = alt
+        t.max_alt = self.max_alt_seen
+        t.accel = acc
+        t.vel = vel
+        t.pyro = state == 5 and t_s < 6.5
+        t.remote_safe = False
+        t.rssi = -60 + random.randint(-5, 5)
+        t.snr = 10.0 + random.uniform(-2, 2)
+        t.vbat = 8.1 + random.uniform(-0.05, 0.05)
+        t.cont1 = 1500
+        t.cont2 = 1500
+        t.temp_c = 22.0 + random.uniform(-0.5, 0.5)
+        t.pres_hpa = 1013.0 - alt * 0.12
+        return t
+
+
+# ── Fault detector ────────────────────────────────────────────
+class FaultDetector:
+    """Detects impossible / suspicious values and raises events."""
+
+    def __init__(self, events: EventLog):
+        self.events = events
+        self.last_alt: float | None = None
+        self.last_fault_ts: dict[str, float] = {}
+
+    def reset(self):
+        self.last_alt = None
+        self.last_fault_ts.clear()
+
+    def _throttle(self, key: str, min_gap: float = 2.0) -> bool:
+        now = time.monotonic()
+        if now - self.last_fault_ts.get(key, 0) < min_gap:
+            return False
+        self.last_fault_ts[key] = now
+        return True
+
+    def check(self, t: "Telemetry"):
+        if t.alt > MAX_ALT_ABS_M and self._throttle("alt_abs"):
+            self.events.add(SEV_FAULT, "fault",
+                            f"Absurd altitude {t.alt:.0f} m (>{MAX_ALT_ABS_M:.0f})")
+        if self.last_alt is not None:
+            jump = abs(t.alt - self.last_alt)
+            if jump > MAX_ALT_JUMP_M and self._throttle("alt_jump"):
+                self.events.add(SEV_FAULT, "fault",
+                                f"Altitude jump {jump:.0f} m between samples")
+        self.last_alt = t.alt
+
+        if t.accel > MAX_ACCEL_G and self._throttle("accel"):
+            self.events.add(SEV_FAULT, "fault",
+                            f"Accel spike {t.accel:.1f} g (>{MAX_ACCEL_G:.0f})")
+        if 0 < t.pres_hpa < MIN_PRES_HPA and self._throttle("pres_low"):
+            self.events.add(SEV_FAULT, "fault",
+                            f"Pressure {t.pres_hpa:.0f} hPa implausible")
+        if t.vbat > 0 and t.vbat < 6.5 and self._throttle("vbat_low"):
+            self.events.add(SEV_WARN, "fault",
+                            f"Battery voltage low: {t.vbat:.2f} V")
+
+
 # ── GUI ────────────────────────────────────────────────────────
 class GroundStationApp:
     def __init__(self, root: tk.Tk):
@@ -305,6 +548,28 @@ class GroundStationApp:
         self._overlays = {}  # {filename: (t_list, alt_list, vel_list, acc_list)}
         self._overlay_lines = []
 
+        # New subsystems
+        self.events = EventLog()
+        self.preflight = PreflightChecklist()
+        self.fault_detector = FaultDetector(self.events)
+        self.sim_source = SimulationSource()
+        self.config = dict(DEFAULT_CONFIG)
+
+        # Runtime state
+        self._last_packet_ts = 0.0     # monotonic of last received packet
+        self._stale = False
+        self._graph_paused = False
+        self._mission_name = ""
+        self._mission_notes = ""
+        self._mission_folder: str | None = None
+        self._apogee_marker = None
+        self._apogee_announced = False
+        self._launch_ts: float | None = None
+        self._landed_ts: float | None = None
+        self._last_sim_ts = 0.0
+
+        self.events.add(SEV_INFO, "system", "Ground station started")
+
         self._build_ui()
         self._tick()
 
@@ -328,9 +593,16 @@ class GroundStationApp:
                      font=("Consolas", 9))
         s.configure("Check.TLabel",  background="#1a1a2e", foreground="#aaaaaa",
                      font=("Consolas", 10))
-
-        main = ttk.Frame(self.root, style="Dark.TFrame")
-        main.pack(fill=tk.BOTH, expand=True, padx=8, pady=6)
+        s.configure("Banner.TLabel", background="#222244", foreground="#ffffff",
+                     font=("Consolas", 28, "bold"), anchor="center")
+        s.configure("SubBanner.TLabel", background="#222244", foreground="#aaaaaa",
+                     font=("Consolas", 11))
+        s.configure("TNotebook", background="#1a1a2e", borderwidth=0)
+        s.configure("TNotebook.Tab", background="#16213e", foreground="#cccccc",
+                     padding=(14, 6), font=("Consolas", 10, "bold"))
+        s.map("TNotebook.Tab",
+              background=[("selected", "#2a3a6e")],
+              foreground=[("selected", "#ffffff")])
 
         # ── Menu bar ──
         menubar = tk.Menu(self.root)
@@ -339,10 +611,51 @@ class GroundStationApp:
         filemenu.add_command(label="Load Overlay...", command=self._load_overlay)
         filemenu.add_command(label="Clear Overlays", command=self._clear_overlays)
         filemenu.add_separator()
+        filemenu.add_command(label="Export Events CSV...", command=self._export_events)
+        filemenu.add_separator()
         filemenu.add_command(label="Exit", command=lambda: (
             self._stop_recording(), self.reader.disconnect(), self.root.destroy()))
         menubar.add_cascade(label="File", menu=filemenu)
         self.root.config(menu=menubar)
+
+        # ── Giant status banner (always visible) ──
+        banner = tk.Frame(self.root, bg="#222244", height=90)
+        banner.pack(fill=tk.X, side=tk.TOP)
+        banner.pack_propagate(False)
+        self.banner_label = ttk.Label(banner, text="DISCONNECTED",
+                                      style="Banner.TLabel")
+        self.banner_label.pack(fill=tk.X, expand=True, padx=8, pady=(6, 0))
+        self.banner_sub = ttk.Label(banner, text="No telemetry",
+                                    style="SubBanner.TLabel", anchor="center")
+        self.banner_sub.pack(fill=tk.X, padx=8, pady=(0, 6))
+
+        # ── Notebook ──
+        notebook = ttk.Notebook(self.root)
+        notebook.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
+        self.notebook = notebook
+
+        dash_tab = ttk.Frame(notebook, style="Dark.TFrame")
+        preflight_tab = ttk.Frame(notebook, style="Dark.TFrame")
+        events_tab = ttk.Frame(notebook, style="Dark.TFrame")
+        review_tab = ttk.Frame(notebook, style="Dark.TFrame")
+        settings_tab = ttk.Frame(notebook, style="Dark.TFrame")
+        diag_tab = ttk.Frame(notebook, style="Dark.TFrame")
+        notebook.add(dash_tab, text="Dashboard")
+        notebook.add(preflight_tab, text="Preflight")
+        notebook.add(events_tab, text="Events")
+        notebook.add(review_tab, text="Review")
+        notebook.add(settings_tab, text="Settings")
+        notebook.add(diag_tab, text="Diagnostics")
+
+        # Dashboard lives in dash_tab (existing layout below)
+        main = ttk.Frame(dash_tab, style="Dark.TFrame")
+        main.pack(fill=tk.BOTH, expand=True, padx=8, pady=6)
+
+        self._preflight_tab = preflight_tab
+        self._events_tab = events_tab
+        self._review_tab = review_tab
+        self._settings_tab = settings_tab
+        self._diag_tab = diag_tab
 
         # ── Title ──
         ttk.Label(main, text="WATER ROCKET GROUND STATION",
@@ -470,6 +783,315 @@ class GroundStationApp:
         self.log_text.configure(yscrollcommand=log_scroll.set)
         log_scroll.pack(side=tk.RIGHT, fill=tk.Y)
         self.log_text.pack(fill=tk.X, expand=False)
+
+        # Pause button for graph freeze
+        self.btn_pause = tk.Button(
+            conn, text="  PAUSE  ", font=("Consolas", 10, "bold"),
+            bg="#444444", fg="white", activebackground="#666666",
+            relief=tk.RAISED, bd=2, command=self._toggle_pause)
+        self.btn_pause.pack(side=tk.RIGHT, padx=6)
+
+        # Build remaining tabs
+        self._build_preflight_tab(self._preflight_tab)
+        self._build_events_tab(self._events_tab)
+        self._build_review_tab(self._review_tab)
+        self._build_settings_tab(self._settings_tab)
+        self._build_diag_tab(self._diag_tab)
+
+    # ── Preflight tab ────────────────────────────────────────────
+    def _build_preflight_tab(self, parent):
+        title = ttk.Label(parent, text="PREFLIGHT CHECKLIST",
+                          style="Title.TLabel")
+        title.pack(anchor=tk.W, padx=8, pady=(8, 4))
+
+        info = ttk.Label(
+            parent,
+            text="ARM is disabled until all REQUIRED checks pass.",
+            style="Status.TLabel")
+        info.pack(anchor=tk.W, padx=8, pady=(0, 8))
+
+        # Scrollable list of checks
+        list_frame = tk.Frame(parent, bg="#1a1a2e")
+        list_frame.pack(fill=tk.BOTH, expand=True, padx=8, pady=4)
+
+        self._check_rows = {}  # key -> (status_label, button_or_none)
+
+        for key, item in self.preflight.items.items():
+            row = tk.Frame(list_frame, bg="#16213e", height=36)
+            row.pack(fill=tk.X, pady=1)
+            row.pack_propagate(False)
+
+            # Status dot
+            st_lbl = tk.Label(row, text=" ? ", bg="#16213e", fg="#888888",
+                              font=("Consolas", 14, "bold"), width=4)
+            st_lbl.pack(side=tk.LEFT, padx=(8, 4))
+
+            req_tag = "[REQ]" if item["required"] else "[opt]"
+            req_color = "#ff8800" if item["required"] else "#666666"
+            tk.Label(row, text=req_tag, bg="#16213e", fg=req_color,
+                     font=("Consolas", 9, "bold"), width=6).pack(side=tk.LEFT)
+
+            tk.Label(row, text=item["label"], bg="#16213e", fg="#e0e0e0",
+                     font=("Consolas", 11), anchor="w").pack(
+                side=tk.LEFT, padx=8, fill=tk.X, expand=True)
+
+            btn = None
+            if item["manual"]:
+                btn = tk.Button(
+                    row, text="Mark OK", bg="#2196F3", fg="white",
+                    font=("Consolas", 9, "bold"), relief=tk.RAISED, bd=1,
+                    command=lambda k=key: self._toggle_manual_check(k))
+                btn.pack(side=tk.RIGHT, padx=8)
+
+            self._check_rows[key] = (st_lbl, btn)
+
+        # ARM / DISARM panel
+        ctl = tk.Frame(parent, bg="#1a1a2e")
+        ctl.pack(fill=tk.X, padx=8, pady=(12, 8))
+
+        self.preflight_summary = tk.Label(
+            ctl, text="Required passed: 0/0", bg="#1a1a2e", fg="#aaaaaa",
+            font=("Consolas", 11, "bold"))
+        self.preflight_summary.pack(side=tk.LEFT, padx=8)
+
+        self.btn_arm_gated = tk.Button(
+            ctl, text="ARM (gated)", font=("Consolas", 14, "bold"),
+            bg="#333333", fg="#888888", relief=tk.RAISED, bd=3,
+            width=16, height=2, state=tk.DISABLED,
+            command=self._arm_with_confirm)
+        self.btn_arm_gated.pack(side=tk.RIGHT, padx=8)
+
+        self.btn_disarm = tk.Button(
+            ctl, text="DISARM / SAFE", font=("Consolas", 14, "bold"),
+            bg="#cc0000", fg="white", relief=tk.RAISED, bd=3,
+            width=16, height=2, command=self._send_safe)
+        self.btn_disarm.pack(side=tk.RIGHT, padx=8)
+
+    # ── Events tab ──────────────────────────────────────────────
+    def _build_events_tab(self, parent):
+        title_bar = tk.Frame(parent, bg="#1a1a2e")
+        title_bar.pack(fill=tk.X, padx=8, pady=(8, 4))
+        ttk.Label(title_bar, text="EVENT LOG", style="Title.TLabel").pack(
+            side=tk.LEFT)
+
+        self.ev_filter = tk.StringVar(value="ALL")
+        for lbl, val, color in [("ALL", "ALL", "#aaaaaa"),
+                                ("INFO+", SEV_INFO, "#88aaff"),
+                                ("WARN+", SEV_WARN, "#ff8800"),
+                                ("FAULT", SEV_FAULT, "#ff4444")]:
+            tk.Radiobutton(title_bar, text=lbl, value=val,
+                           variable=self.ev_filter, bg="#1a1a2e",
+                           fg=color, selectcolor="#1a1a2e",
+                           activebackground="#1a1a2e",
+                           activeforeground=color,
+                           font=("Consolas", 9, "bold"),
+                           command=self._refresh_events).pack(
+                side=tk.RIGHT, padx=4)
+
+        tk.Button(title_bar, text="Clear", bg="#555555", fg="white",
+                  font=("Consolas", 9, "bold"),
+                  command=self._clear_events).pack(side=tk.RIGHT, padx=4)
+        tk.Button(title_bar, text="Export", bg="#2196F3", fg="white",
+                  font=("Consolas", 9, "bold"),
+                  command=self._export_events).pack(side=tk.RIGHT, padx=4)
+
+        body = tk.Frame(parent, bg="#0f0f1a")
+        body.pack(fill=tk.BOTH, expand=True, padx=8, pady=4)
+
+        self.events_text = tk.Text(
+            body, bg="#0f0f1a", fg="#dddddd", font=("Consolas", 10),
+            relief=tk.FLAT, wrap=tk.NONE, state=tk.DISABLED)
+        scroll = ttk.Scrollbar(body, orient=tk.VERTICAL,
+                               command=self.events_text.yview)
+        self.events_text.configure(yscrollcommand=scroll.set)
+        scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        self.events_text.pack(fill=tk.BOTH, expand=True)
+
+        for sev, color in SEV_COLORS.items():
+            self.events_text.tag_configure(sev, foreground=color)
+
+    # ── Review tab ──────────────────────────────────────────────
+    def _build_review_tab(self, parent):
+        top = tk.Frame(parent, bg="#1a1a2e")
+        top.pack(fill=tk.X, padx=8, pady=(8, 4))
+        ttk.Label(top, text="FLIGHT REVIEW", style="Title.TLabel").pack(
+            side=tk.LEFT)
+        tk.Button(top, text="Load CSV...", bg="#2196F3", fg="white",
+                  font=("Consolas", 10, "bold"),
+                  command=self._load_flight).pack(side=tk.RIGHT, padx=4)
+        tk.Button(top, text="Load Overlay...", bg="#555555", fg="white",
+                  font=("Consolas", 10, "bold"),
+                  command=self._load_overlay).pack(side=tk.RIGHT, padx=4)
+        tk.Button(top, text="Clear Overlays", bg="#555555", fg="white",
+                  font=("Consolas", 10, "bold"),
+                  command=self._clear_overlays).pack(side=tk.RIGHT, padx=4)
+
+        # Summary panel
+        self.review_summary = tk.Label(
+            parent, text="No flight loaded.", bg="#16213e", fg="#e0e0e0",
+            font=("Consolas", 11), justify=tk.LEFT, anchor="w", padx=10, pady=8)
+        self.review_summary.pack(fill=tk.X, padx=8, pady=4)
+
+        # Scrubber
+        scrub = tk.Frame(parent, bg="#1a1a2e")
+        scrub.pack(fill=tk.X, padx=8, pady=4)
+        tk.Label(scrub, text="Scrub:", bg="#1a1a2e", fg="#aaaaaa",
+                 font=("Consolas", 10)).pack(side=tk.LEFT)
+        self._scrub_var = tk.DoubleVar(value=0.0)
+        self._scrub = ttk.Scale(scrub, from_=0.0, to=1.0,
+                                variable=self._scrub_var,
+                                orient=tk.HORIZONTAL,
+                                command=self._on_scrub)
+        self._scrub.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=8)
+        self.scrub_readout = tk.Label(scrub, text="--",
+                                       bg="#1a1a2e", fg="#00ff88",
+                                       font=("Consolas", 11, "bold"), width=16)
+        self.scrub_readout.pack(side=tk.RIGHT)
+
+        ttk.Label(parent,
+                  text="Loaded flights show on the Dashboard graphs. "
+                       "Use the scrubber above to jump to a mission time.",
+                  style="Status.TLabel").pack(anchor=tk.W, padx=8, pady=(4, 8))
+
+    # ── Settings tab ────────────────────────────────────────────
+    def _build_settings_tab(self, parent):
+        ttk.Label(parent, text="SETTINGS", style="Title.TLabel").pack(
+            anchor=tk.W, padx=8, pady=(8, 4))
+
+        grid = tk.Frame(parent, bg="#1a1a2e")
+        grid.pack(fill=tk.X, padx=8, pady=4)
+
+        # Simulation mode
+        self.sim_var = tk.BooleanVar(value=False)
+        tk.Checkbutton(grid, text="Simulation mode (no hardware)",
+                       variable=self.sim_var, bg="#1a1a2e", fg="#e0e0e0",
+                       selectcolor="#16213e", activebackground="#1a1a2e",
+                       activeforeground="#e0e0e0",
+                       font=("Consolas", 11, "bold"),
+                       command=self._toggle_sim).grid(
+            row=0, column=0, sticky="w", pady=4, columnspan=2)
+
+        # Units
+        tk.Label(grid, text="Units:", bg="#1a1a2e", fg="#aaaaaa",
+                 font=("Consolas", 10)).grid(row=1, column=0, sticky="w", pady=4)
+        self.units_var = tk.StringVar(value="m")
+        for i, u in enumerate(("m", "ft")):
+            tk.Radiobutton(grid, text=u, value=u, variable=self.units_var,
+                           bg="#1a1a2e", fg="#e0e0e0", selectcolor="#16213e",
+                           activebackground="#1a1a2e",
+                           font=("Consolas", 10),
+                           command=self._apply_units).grid(
+                row=1, column=1 + i, sticky="w")
+
+        # View mode
+        tk.Label(grid, text="View:", bg="#1a1a2e", fg="#aaaaaa",
+                 font=("Consolas", 10)).grid(row=2, column=0, sticky="w", pady=4)
+        self.view_var = tk.StringVar(value="operator")
+        for i, v in enumerate(("operator", "debug")):
+            tk.Radiobutton(grid, text=v, value=v, variable=self.view_var,
+                           bg="#1a1a2e", fg="#e0e0e0", selectcolor="#16213e",
+                           activebackground="#1a1a2e",
+                           font=("Consolas", 10)).grid(
+                row=2, column=1 + i, sticky="w")
+
+        # Mission info
+        tk.Label(grid, text="Mission name:", bg="#1a1a2e", fg="#aaaaaa",
+                 font=("Consolas", 10)).grid(row=3, column=0, sticky="w", pady=4)
+        self.mission_entry = tk.Entry(grid, width=28, bg="#16213e",
+                                       fg="#e0e0e0", insertbackground="#e0e0e0",
+                                       font=("Consolas", 10))
+        self.mission_entry.grid(row=3, column=1, columnspan=3, sticky="w", pady=4)
+
+        tk.Label(grid, text="Notes:", bg="#1a1a2e", fg="#aaaaaa",
+                 font=("Consolas", 10)).grid(row=4, column=0, sticky="nw", pady=4)
+        self.notes_entry = tk.Text(grid, width=50, height=5, bg="#16213e",
+                                    fg="#e0e0e0", insertbackground="#e0e0e0",
+                                    font=("Consolas", 10))
+        self.notes_entry.grid(row=4, column=1, columnspan=3, sticky="w", pady=4)
+
+        # Config editor (thresholds)
+        tk.Label(parent, text="Flight computer config",
+                 bg="#1a1a2e", fg="#aaaaaa",
+                 font=("Consolas", 11, "bold")).pack(
+            anchor=tk.W, padx=8, pady=(12, 2))
+
+        cfg_frame = tk.Frame(parent, bg="#1a1a2e")
+        cfg_frame.pack(fill=tk.X, padx=8, pady=4)
+        self.cfg_entries = {}
+        cfg_fields = [
+            ("launch_detect_g", "Launch detect (g)"),
+            ("apogee_filter_samples", "Apogee filter samples"),
+            ("landing_detect_m", "Landing detect (m)"),
+            ("telemetry_rate_hz", "Telemetry rate (Hz)"),
+            ("logging_rate_hz", "Logging rate (Hz)"),
+        ]
+        for i, (key, lbl) in enumerate(cfg_fields):
+            tk.Label(cfg_frame, text=lbl, bg="#1a1a2e", fg="#aaaaaa",
+                     font=("Consolas", 10)).grid(row=i, column=0,
+                                                  sticky="w", pady=2)
+            e = tk.Entry(cfg_frame, width=10, bg="#16213e", fg="#e0e0e0",
+                         insertbackground="#e0e0e0", font=("Consolas", 10))
+            e.insert(0, str(DEFAULT_CONFIG[key]))
+            e.grid(row=i, column=1, sticky="w", padx=8)
+            self.cfg_entries[key] = e
+
+        tk.Button(parent, text="Apply & Upload Config", bg="#2196F3",
+                  fg="white", font=("Consolas", 10, "bold"),
+                  command=self._apply_config).pack(anchor=tk.W, padx=8, pady=8)
+
+        # Hardware test commands
+        tk.Label(parent, text="Hardware tests", bg="#1a1a2e", fg="#aaaaaa",
+                 font=("Consolas", 11, "bold")).pack(
+            anchor=tk.W, padx=8, pady=(12, 2))
+        hw = tk.Frame(parent, bg="#1a1a2e")
+        hw.pack(fill=tk.X, padx=8, pady=4)
+        for lbl, cmd in [("Buzzer test", "CMD,BUZZ"),
+                         ("LED test", "CMD,LED"),
+                         ("Radio ping", "CMD,PING"),
+                         ("Zero altitude", "CMD,ZEROALT"),
+                         ("Calibrate ground pres", "CMD,CALPRES")]:
+            tk.Button(hw, text=lbl, bg="#555555", fg="white",
+                      font=("Consolas", 9, "bold"),
+                      command=lambda c=cmd: self._send_cmd(c)).pack(
+                side=tk.LEFT, padx=3)
+
+    # ── Diagnostics tab ─────────────────────────────────────────
+    def _build_diag_tab(self, parent):
+        ttk.Label(parent, text="DIAGNOSTICS / PACKET INSPECTOR",
+                  style="Title.TLabel").pack(anchor=tk.W, padx=8, pady=(8, 4))
+
+        top = tk.Frame(parent, bg="#16213e")
+        top.pack(fill=tk.X, padx=8, pady=4)
+        self.diag_stats = tk.Label(
+            top, text="Packets: 0  |  Dropped: 0  |  Last age: --  |  RSSI: --",
+            bg="#16213e", fg="#00ff88", font=("Consolas", 11, "bold"),
+            padx=10, pady=6, anchor="w")
+        self.diag_stats.pack(fill=tk.X)
+
+        # Latest decoded packet
+        tk.Label(parent, text="Latest decoded packet",
+                 bg="#1a1a2e", fg="#aaaaaa",
+                 font=("Consolas", 11, "bold")).pack(anchor=tk.W,
+                                                      padx=8, pady=(8, 2))
+        self.diag_decoded = tk.Text(parent, height=10, bg="#0f0f1a",
+                                     fg="#00ff88", font=("Consolas", 10),
+                                     relief=tk.FLAT, state=tk.DISABLED)
+        self.diag_decoded.pack(fill=tk.X, padx=8, pady=2)
+
+        tk.Label(parent, text="Raw serial log (tail)",
+                 bg="#1a1a2e", fg="#aaaaaa",
+                 font=("Consolas", 11, "bold")).pack(anchor=tk.W,
+                                                      padx=8, pady=(8, 2))
+        raw = tk.Frame(parent, bg="#0f0f1a")
+        raw.pack(fill=tk.BOTH, expand=True, padx=8, pady=2)
+        self.diag_raw = tk.Text(raw, bg="#0f0f1a", fg="#44ff44",
+                                 font=("Consolas", 9), relief=tk.FLAT,
+                                 wrap=tk.NONE, state=tk.DISABLED)
+        rscroll = ttk.Scrollbar(raw, orient=tk.VERTICAL,
+                                 command=self.diag_raw.yview)
+        self.diag_raw.configure(yscrollcommand=rscroll.set)
+        rscroll.pack(side=tk.RIGHT, fill=tk.Y)
+        self.diag_raw.pack(fill=tk.BOTH, expand=True)
 
     def _make_card(self, parent, title, init_val, unit, key=""):
         card = ttk.Frame(parent, style="Card.TFrame", width=140, height=88)
@@ -650,12 +1272,16 @@ class GroundStationApp:
 
             self._update_peaks(0)
             self._redraw_graphs()
+            self._update_apogee_marker()
+            self._update_review_summary()
+            self.canvas.draw_idle()
             name = os.path.basename(path)
             self.safe_status.configure(
                 text=f"Loaded: {name} ({len(data['t'])} points)",
                 foreground="#00ff88")
             self.conn_status.configure(text=f"REPLAY: {name}",
                                        foreground="#00bcd4")
+            self.events.add(SEV_INFO, "replay", f"Loaded CSV: {name}")
         except Exception as e:
             self.safe_status.configure(text=f"Load error: {e}",
                                        foreground="#ff4444")
@@ -766,10 +1392,20 @@ class GroundStationApp:
 
     # ── Main tick (20 Hz) ────────────────────────────────────────
     def _tick(self):
-        packets = self.reader.drain()
+        packets = list(self.reader.drain())
         log_lines = self.reader.drain_log()
 
-        # Append raw log
+        # Simulation source: inject fake packets when enabled
+        if self.config.get("sim_mode"):
+            now = time.monotonic()
+            if now - self._last_sim_ts >= 0.1:     # 10 Hz
+                self._last_sim_ts = now
+                fake = self.sim_source.get_packet()
+                if fake:
+                    packets.append(fake)
+                    self.reader.packet_count += 1
+
+        # Append raw log (dashboard mini + diagnostics tab)
         if log_lines:
             self.log_text.configure(state=tk.NORMAL)
             for line in log_lines:
@@ -780,10 +1416,35 @@ class GroundStationApp:
             self.log_text.see(tk.END)
             self.log_text.configure(state=tk.DISABLED)
 
+            if hasattr(self, "diag_raw"):
+                self.diag_raw.configure(state=tk.NORMAL)
+                for line in log_lines:
+                    self.diag_raw.insert(tk.END, line + "\n")
+                lc = int(self.diag_raw.index("end-1c").split(".")[0])
+                if lc > 400:
+                    self.diag_raw.delete("1.0", f"{lc - 400}.0")
+                self.diag_raw.see(tk.END)
+                self.diag_raw.configure(state=tk.DISABLED)
+
         # Process packets
+        dropped_this_tick = 0
+        prev_time_s = self.last_telem.time_s if self.last_telem else None
         for t in packets:
             if self.t_offset is None:
                 self.t_offset = t.time_s
+                self.events.reset_mission_time()
+
+            # Detect dropped packets by time_s gaps (F packets at known rate)
+            if (prev_time_s is not None and t.packet_type == "F"
+                    and self.last_telem and self.last_telem.packet_type == "F"):
+                rate = max(1, int(self.config.get("telemetry_rate_hz", 10)))
+                expected_dt = 1.0 / rate
+                gap = t.time_s - prev_time_s
+                if gap > expected_dt * 2.5:
+                    missed = int(gap / expected_dt) - 1
+                    if missed > 0:
+                        dropped_this_tick += missed
+            prev_time_s = t.time_s
 
             ts = t.time_s - self.t_offset
             self.t_hist.append(ts)
@@ -794,24 +1455,69 @@ class GroundStationApp:
             gyro_mag = math.sqrt(t.gx**2 + t.gy**2 + t.gz**2)
             self.gyro_hist.append(gyro_mag)
 
-            # Peak tracking
             if t.packet_type == "F":
-                # Use firmware-tracked max_alt (100 Hz, more accurate)
                 self.peak_alt = max(self.peak_alt, t.max_alt, t.alt)
             else:
                 self.peak_alt = max(self.peak_alt, t.alt)
             self.peak_vel   = max(self.peak_vel, abs(t.vel))
             self.peak_accel = max(self.peak_accel, t.accel)
 
-            # CSV recording
             self._record_telemetry(t, ts)
-
-            # Audio alerts
             self._check_alerts(t)
+            self.fault_detector.check(t)
 
+            # Structured events on state transitions
+            if (self.last_telem and t.packet_type == "F"
+                    and self.last_telem.packet_type == "F"
+                    and t.state != self.last_telem.state):
+                prev_name = STATE_NAMES.get(self.last_telem.state, "?")
+                new_name = STATE_NAMES.get(t.state, "?")
+                sev = SEV_FAULT if t.state == 7 else SEV_INFO
+                self.events.add(sev, "flight",
+                                f"State {prev_name} -> {new_name}")
+                if t.state == 3:
+                    self._launch_ts = time.monotonic()
+                    self.events.add(SEV_WARN, "flight", "LAUNCH detected")
+                if t.state == 5 and not self._apogee_announced:
+                    self._apogee_announced = True
+                    self.events.add(SEV_INFO, "flight",
+                                    f"APOGEE at {self._fmt_alt(self.peak_alt)}")
+                if t.state == 6:
+                    self._landed_ts = time.monotonic()
+                    self.events.add(SEV_INFO, "flight",
+                                    "LANDED - flight summary available in Review")
+                    self._update_review_summary()
+
+            self._last_packet_ts = time.monotonic()
             self.last_telem = t
 
-        # Update card displays
+        if dropped_this_tick > 0:
+            self.events.add(SEV_WARN, "radio",
+                            f"{dropped_this_tick} packet(s) dropped")
+
+        # Stale telemetry detection
+        now = time.monotonic()
+        if self._last_packet_ts > 0:
+            age = now - self._last_packet_ts
+            new_stale = age > STALE_TIMEOUT_S and (
+                self.reader.connected or self.config.get("sim_mode"))
+            if new_stale and not self._stale:
+                self.events.add(SEV_WARN, "radio",
+                                f"Telemetry stale ({age:.1f}s, no packets)")
+            if not new_stale and self._stale:
+                self.events.add(SEV_INFO, "radio", "Telemetry resumed")
+            self._stale = new_stale
+        else:
+            self._stale = False
+
+        # Preflight auto-checks
+        last_pkt_age = (now - self._last_packet_ts) if self._last_packet_ts else 999.0
+        self.preflight.update_auto(
+            self.reader.connected or self.config.get("sim_mode"),
+            self.reader.packet_count, last_pkt_age, self.last_telem)
+        self._refresh_preflight()
+
+        # Card / label updates (keep showing last-good values on stale)
         if self.last_telem:
             t = self.last_telem
             self._switch_mode(t.packet_type)
@@ -827,17 +1533,28 @@ class GroundStationApp:
 
         self.pkt_label.configure(text=f"Packets: {self.reader.packet_count}")
 
+        # Banner + diagnostics + events
+        self._update_banner(self.last_telem)
+        if hasattr(self, "diag_stats"):
+            self._update_diag(self.last_telem, dropped_this_tick)
+        if hasattr(self, "events_text"):
+            self._refresh_events()
+
         # Disconnect detection
         if not self.reader.connected and self.btn_connect.cget("text") == "Disconnect":
             self.btn_connect.configure(text="Connect")
             self.conn_status.configure(text="DISCONNECTED (lost)",
                                        foreground="#ff8800")
+            self.events.add(SEV_WARN, "radio", "Serial connection lost")
 
-        # Graphs (throttled to 5 Hz)
+        # Graphs (throttled to 5 Hz; skip if paused)
         self._graph_counter += 1
-        if self._graph_counter >= 4 and len(self.t_hist) > 1:
+        if (not self._graph_paused and self._graph_counter >= 4
+                and len(self.t_hist) > 1):
             self._graph_counter = 0
             self._redraw_graphs()
+            self._update_apogee_marker()
+            self.canvas.draw_idle()
 
         self.root.after(50, self._tick)
 
@@ -960,6 +1677,288 @@ class GroundStationApp:
         all_ok = (t.vbat >= 7.0 or t.vbat == 0) and c1_ok and c2_ok
         self.checklist_label.configure(
             foreground="#00ff88" if all_ok else "#ff8800")
+
+
+    # ── New: banner ──────────────────────────────────────────────
+    def _update_banner(self, t: "Telemetry | None"):
+        if self._stale:
+            self.banner_label.configure(text="STALE TELEMETRY", foreground="#ff4444")
+            self.banner_sub.configure(
+                text=f"No packet for {time.monotonic() - self._last_packet_ts:.1f}s")
+            return
+        if not self.reader.connected and not self.config.get("sim_mode"):
+            self.banner_label.configure(text="DISCONNECTED", foreground="#888888")
+            self.banner_sub.configure(text="No telemetry")
+            return
+        if t is None:
+            self.banner_label.configure(text="CONNECTED", foreground="#2196F3")
+            self.banner_sub.configure(text="Waiting for telemetry")
+            return
+        state_text = STATE_NAMES.get(t.state, f"?{t.state}")
+        color = STATE_COLORS.get(t.state, "#ffffff")
+        mission_s = (time.monotonic() - (self._launch_ts or time.monotonic())) \
+                     if self._launch_ts else 0.0
+        if t.state == 7:
+            banner_text = "FAULT"
+        elif t.state in (3, 4, 5):
+            banner_text = "IN FLIGHT"
+        elif t.state == 2:
+            banner_text = "ARMED"
+        elif t.state == 6:
+            banner_text = "LANDED"
+        elif t.state == 1:
+            banner_text = "READY"
+        else:
+            banner_text = state_text
+        live = "LIVE" if self.reader.connected and not self.config.get("sim_mode") \
+               else ("SIM" if self.config.get("sim_mode") else "REPLAY")
+        self.banner_label.configure(text=banner_text, foreground=color)
+        sub = (f"[{live}]  state={state_text}  "
+               f"alt={self._fmt_alt(t.alt)}  "
+               f"vel={t.vel:.1f} m/s  "
+               f"max={self._fmt_alt(self.peak_alt)}  "
+               f"T+{mission_s:5.1f}s")
+        self.banner_sub.configure(text=sub)
+
+    def _fmt_alt(self, m: float) -> str:
+        if self.config.get("units") == "ft":
+            return f"{m * FT_PER_M:.1f} ft"
+        return f"{m:.1f} m"
+
+    # ── New: pause graphs ────────────────────────────────────────
+    def _toggle_pause(self):
+        self._graph_paused = not self._graph_paused
+        if self._graph_paused:
+            self.btn_pause.configure(bg="#cc8800", text=" RESUME ")
+            self.events.add(SEV_INFO, "ui", "Graphs paused")
+        else:
+            self.btn_pause.configure(bg="#444444", text="  PAUSE  ")
+            self.events.add(SEV_INFO, "ui", "Graphs resumed")
+
+    # ── New: simulation toggle ───────────────────────────────────
+    def _toggle_sim(self):
+        on = bool(self.sim_var.get())
+        self.config["sim_mode"] = on
+        if on:
+            self.sim_source.reset()
+            self._last_sim_ts = 0.0
+            self._reset_display()
+            self.events.add(SEV_INFO, "sim", "Simulation mode ENABLED")
+        else:
+            self.events.add(SEV_INFO, "sim", "Simulation mode disabled")
+
+    # ── New: units toggle ────────────────────────────────────────
+    def _apply_units(self):
+        self.config["units"] = self.units_var.get()
+        unit = self.config["units"]
+        self.card_labels["alt"][1].configure(text=unit) if "alt" in self.card_labels else None
+        if "maxalt" in self.card_labels:
+            self.card_labels["maxalt"][1].configure(text=unit)
+        self.events.add(SEV_INFO, "ui", f"Units set to {unit}")
+
+    # ── New: preflight manual toggle ─────────────────────────────
+    def _toggle_manual_check(self, key: str):
+        cur = self.preflight.items[key]["status"]
+        new = True if cur is not True else False
+        self.preflight.set_manual(key, new)
+        self.events.add(SEV_INFO, "preflight",
+                        f"{key}: {'OK' if new else 'cleared'}")
+
+    def _refresh_preflight(self):
+        for key, (st_lbl, btn) in self._check_rows.items():
+            status = self.preflight.items[key]["status"]
+            if status is True:
+                st_lbl.configure(text=" ✓ ", fg="#00ff88")
+                if btn:
+                    btn.configure(bg="#006600", text="  OK  ")
+            elif status is False:
+                st_lbl.configure(text=" ✗ ", fg="#ff4444")
+                if btn:
+                    btn.configure(bg="#2196F3", text="Mark OK")
+            else:
+                st_lbl.configure(text=" ? ", fg="#888888")
+                if btn:
+                    btn.configure(bg="#2196F3", text="Mark OK")
+
+        passed, total = self.preflight.summary()
+        self.preflight_summary.configure(
+            text=f"Required passed: {passed}/{total}",
+            fg="#00ff88" if passed == total else "#ff8800")
+
+        if self.preflight.all_required_passed():
+            self.btn_arm_gated.configure(
+                state=tk.NORMAL, bg="#cc7700", fg="white",
+                text="ARM (ready)")
+        else:
+            self.btn_arm_gated.configure(
+                state=tk.DISABLED, bg="#333333", fg="#888888",
+                text="ARM (gated)")
+
+    # ── New: gated ARM with two-step confirm ─────────────────────
+    def _arm_with_confirm(self):
+        if not self.preflight.all_required_passed():
+            messagebox.showerror("ARM blocked",
+                                 "Required preflight checks are not passed.")
+            return
+        typed = simpledialog.askstring(
+            "Confirm ARM",
+            "Type ARM to confirm arming the rocket:",
+            parent=self.root)
+        if typed is None:
+            return
+        if typed.strip().upper() != "ARM":
+            self.events.add(SEV_WARN, "ui", "ARM cancelled (wrong confirm)")
+            messagebox.showinfo("ARM cancelled", "Confirmation text did not match.")
+            return
+        self._send_arm()
+        self.events.add(SEV_WARN, "cmd", "ARM confirmed and sent")
+
+    # ── New: generic command sender ──────────────────────────────
+    def _send_cmd(self, cmd: str):
+        if self.config.get("sim_mode"):
+            self.events.add(SEV_INFO, "sim", f"[sim] would send: {cmd}")
+            return
+        if not self.reader.connected:
+            self.events.add(SEV_WARN, "cmd", f"Not connected; dropped: {cmd}")
+            return
+        if self.reader.send_command(cmd):
+            self.events.add(SEV_INFO, "cmd", f"Sent: {cmd}")
+        else:
+            self.events.add(SEV_FAULT, "cmd", f"Send failed: {cmd}")
+
+    # ── New: config apply (upload) ───────────────────────────────
+    def _apply_config(self):
+        for key, entry in self.cfg_entries.items():
+            txt = entry.get().strip()
+            try:
+                val = float(txt) if "." in txt else int(txt)
+            except ValueError:
+                self.events.add(SEV_WARN, "config",
+                                f"Bad value for {key}: {txt!r}")
+                continue
+            self.config[key] = val
+            self._send_cmd(f"CFG,{key},{val}")
+        self.events.add(SEV_INFO, "config", "Config applied")
+
+    # ── New: events panel ────────────────────────────────────────
+    def _refresh_events(self):
+        flt = self.ev_filter.get() if hasattr(self, "ev_filter") else "ALL"
+        min_sev = None if flt == "ALL" else flt
+        evs = self.events.list(min_sev)
+        self.events_text.configure(state=tk.NORMAL)
+        self.events_text.delete("1.0", tk.END)
+        for e in evs[-400:]:
+            line = (f"[{e['t_wall']}] T+{e['t_mission']:6.2f}s  "
+                    f"{e['severity']:5s}  {e['source']:9s}  {e['message']}\n")
+            self.events_text.insert(tk.END, line, e["severity"])
+        self.events_text.see(tk.END)
+        self.events_text.configure(state=tk.DISABLED)
+
+    def _clear_events(self):
+        self.events.clear()
+        self._refresh_events()
+
+    def _export_events(self):
+        path = filedialog.asksaveasfilename(
+            defaultextension=".csv",
+            filetypes=[("CSV files", "*.csv")],
+            title="Export events")
+        if not path:
+            return
+        try:
+            self.events.export_csv(path)
+            self.events.add(SEV_INFO, "system", f"Events exported: {path}")
+        except Exception as e:
+            self.events.add(SEV_FAULT, "system", f"Events export failed: {e}")
+
+    # ── New: review scrubber ─────────────────────────────────────
+    def _on_scrub(self, _val):
+        if not self.t_hist:
+            return
+        frac = float(self._scrub_var.get())
+        t_list = list(self.t_hist)
+        alt_list = list(self.alt_hist)
+        vel_list = list(self.vel_hist)
+        acc_list = list(self.acc_hist)
+        if not t_list:
+            return
+        t_min, t_max = t_list[0], t_list[-1]
+        t_target = t_min + frac * (t_max - t_min)
+        idx = min(range(len(t_list)), key=lambda i: abs(t_list[i] - t_target))
+        self.scrub_readout.configure(
+            text=f"T+{t_list[idx]:.1f}s  {self._fmt_alt(alt_list[idx])}")
+
+    def _update_review_summary(self):
+        if not self.alt_hist:
+            self.review_summary.configure(text="No flight loaded.")
+            return
+        t_list = list(self.t_hist)
+        alt_list = list(self.alt_hist)
+        vel_list = list(self.vel_hist)
+        acc_list = list(self.acc_hist)
+        max_alt = max(alt_list)
+        apogee_idx = alt_list.index(max_alt)
+        t_apogee = t_list[apogee_idx]
+        max_vel = max(abs(v) for v in vel_list) if vel_list else 0
+        max_acc = max(acc_list) if acc_list else 0
+        duration = t_list[-1] - t_list[0]
+        descent = 0.0
+        if apogee_idx < len(t_list) - 1:
+            dt = t_list[-1] - t_apogee
+            if dt > 0:
+                descent = (max_alt - alt_list[-1]) / dt
+        summary = (f"Max altitude:  {self._fmt_alt(max_alt)}\n"
+                   f"Time to apogee: {t_apogee:.2f} s\n"
+                   f"Max velocity:  {max_vel:.2f} m/s\n"
+                   f"Max accel:     {max_acc:.2f} g\n"
+                   f"Flight duration: {duration:.2f} s\n"
+                   f"Avg descent rate: {descent:.2f} m/s")
+        self.review_summary.configure(text=summary)
+
+    # ── New: apogee marker on graph ──────────────────────────────
+    def _update_apogee_marker(self):
+        if self._apogee_marker is not None:
+            try:
+                self._apogee_marker.remove()
+            except Exception:
+                pass
+            self._apogee_marker = None
+        if self.alt_hist and self.t_hist:
+            alt_list = list(self.alt_hist)
+            t_list = list(self.t_hist)
+            max_alt = max(alt_list)
+            idx = alt_list.index(max_alt)
+            self._apogee_marker = self.ax_alt.axvline(
+                t_list[idx], color="#ffff00", ls=":", lw=1, alpha=0.7)
+
+    # ── New: diagnostics update ──────────────────────────────────
+    def _update_diag(self, t: "Telemetry | None", dropped: int):
+        age = (time.monotonic() - self._last_packet_ts) if self._last_packet_ts else 0
+        rssi = t.rssi if t else "--"
+        self.diag_stats.configure(
+            text=f"Packets: {self.reader.packet_count}  |  "
+                 f"Dropped: {dropped}  |  "
+                 f"Last age: {age:.2f}s  |  "
+                 f"RSSI: {rssi} dBm")
+        if t is None:
+            return
+        self.diag_decoded.configure(state=tk.NORMAL)
+        self.diag_decoded.delete("1.0", tk.END)
+        fields = [
+            ("packet_type", t.packet_type), ("time_s", f"{t.time_s:.3f}"),
+            ("state", f"{t.state} ({STATE_NAMES.get(t.state, '?')})"),
+            ("alt", f"{t.alt:.2f}"), ("max_alt", f"{t.max_alt:.2f}"),
+            ("vel", f"{t.vel:.2f}"), ("accel", f"{t.accel:.2f}"),
+            ("rssi", t.rssi), ("snr", f"{t.snr:.1f}"),
+            ("pyro", t.pyro), ("remote_safe", t.remote_safe),
+            ("vbat", f"{t.vbat:.2f}"), ("cont1", t.cont1), ("cont2", t.cont2),
+            ("temp_c", f"{t.temp_c:.2f}"), ("pres_hpa", f"{t.pres_hpa:.1f}"),
+            ("ax", f"{t.ax:.2f}"), ("ay", f"{t.ay:.2f}"), ("az", f"{t.az:.2f}"),
+            ("gx", f"{t.gx:.2f}"), ("gy", f"{t.gy:.2f}"), ("gz", f"{t.gz:.2f}"),
+        ]
+        for name, val in fields:
+            self.diag_decoded.insert(tk.END, f"  {name:14s} = {val}\n")
+        self.diag_decoded.configure(state=tk.DISABLED)
 
 
 # ── Entry point ────────────────────────────────────────────────
