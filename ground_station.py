@@ -73,6 +73,14 @@ MAX_ACCEL_G = 50.0          # accel > this -> fault (realistic water rocket << 3
 MIN_PRES_HPA = 300.0        # pressure below this is impossible at ground
 MAX_ALT_ABS_M = 3000.0      # no water rocket goes this high
 
+# Signal-quality gates: when the link is marginal, corrupted bytes can still
+# parse into a "valid" packet with garbage numbers. These thresholds drop
+# packets that are clearly unreliable before they reach graphs/history.
+MIN_VALID_RSSI_DBM = -120   # weaker than this -> ignore packet
+MAX_VALID_RSSI_DBM = 0      # positive RSSI usually means bogus byte
+MAX_VEL_MS = 120.0          # water rocket: well under sound
+MAX_ALT_STEP_M = 150.0      # single-sample alt jump that is guaranteed fake
+
 # Unit conversion
 FT_PER_M = 3.28084
 
@@ -87,6 +95,8 @@ DEFAULT_CONFIG = {
     "sim_mode": False,
     "units": "m",           # "m" or "ft"
     "view_mode": "operator",  # "operator" or "debug"
+    "min_rssi_dbm": MIN_VALID_RSSI_DBM,
+    "reject_garbage": True,
 }
 
 CSV_HEADER = [
@@ -655,10 +665,41 @@ class GroundStationApp:
         self._landed_ts: float | None = None
         self._last_sim_ts = 0.0
 
+        self._filtered_count = 0  # packets dropped by signal-quality gate
         self.events.add(SEV_INFO, "system", "Ground station started")
 
         self._build_ui()
         self._tick()
+
+    # ── Signal-quality gate ─────────────────────────────────────
+    def _is_packet_valid(self, t: "Telemetry") -> tuple[bool, str]:
+        """Return (ok, reason). Drops packets that are almost certainly
+        corrupted bytes from a weak/dying link."""
+        if not self.config.get("reject_garbage", True):
+            return True, ""
+        # Sim packets bypass the filter (they're clean by construction)
+        if self.config.get("sim_mode"):
+            return True, ""
+        min_rssi = self.config.get("min_rssi_dbm", MIN_VALID_RSSI_DBM)
+        if t.rssi != 0:   # only check if we actually have an RSSI reading
+            if t.rssi < min_rssi:
+                return False, f"RSSI {t.rssi} below {min_rssi}"
+            if t.rssi > MAX_VALID_RSSI_DBM:
+                return False, f"RSSI {t.rssi} positive (bogus)"
+        if abs(t.alt) > MAX_ALT_ABS_M:
+            return False, f"alt {t.alt:.0f} m impossible"
+        if abs(t.vel) > MAX_VEL_MS:
+            return False, f"vel {t.vel:.1f} m/s impossible"
+        if t.accel > MAX_ACCEL_G * 2:
+            return False, f"accel {t.accel:.1f} g impossible"
+        if t.pres_hpa != 0 and t.pres_hpa < MIN_PRES_HPA / 2:
+            return False, f"pressure {t.pres_hpa:.0f} hPa impossible"
+        # Cross-packet step check
+        if self.last_telem and self.last_telem.packet_type == t.packet_type:
+            if abs(t.alt - self.last_telem.alt) > MAX_ALT_STEP_M:
+                return False, (
+                    f"alt step {t.alt - self.last_telem.alt:.0f} m too large")
+        return True, ""
 
     # ── UI construction ──────────────────────────────────────────
     def _build_ui(self):
@@ -1252,6 +1293,30 @@ class GroundStationApp:
                                     font=("Consolas", 10))
         self.notes_entry.grid(row=4, column=1, columnspan=3, sticky="w", pady=4)
 
+        # Signal-quality filter
+        tk.Label(grid, text="Min valid RSSI (dBm):",
+                 bg="#1a1a2e", fg="#aaaaaa", font=("Consolas", 10)).grid(
+            row=5, column=0, sticky="w", pady=4)
+        self.rssi_entry = tk.Entry(grid, width=8, bg="#16213e", fg="#e0e0e0",
+                                    insertbackground="#e0e0e0",
+                                    font=("Consolas", 10))
+        self.rssi_entry.insert(0, str(MIN_VALID_RSSI_DBM))
+        self.rssi_entry.grid(row=5, column=1, sticky="w", pady=4)
+        tk.Button(grid, text="Apply", bg="#555555", fg="white",
+                  font=("Consolas", 9, "bold"),
+                  command=self._apply_rssi_threshold).grid(
+            row=5, column=2, sticky="w", padx=4)
+
+        self.reject_var = tk.BooleanVar(value=True)
+        tk.Checkbutton(grid,
+                       text="Reject garbage packets from weak/dying link",
+                       variable=self.reject_var, bg="#1a1a2e", fg="#e0e0e0",
+                       selectcolor="#16213e", activebackground="#1a1a2e",
+                       activeforeground="#e0e0e0",
+                       font=("Consolas", 10),
+                       command=self._toggle_reject).grid(
+            row=6, column=0, columnspan=4, sticky="w", pady=4)
+
         # Config editor (thresholds)
         tk.Label(parent, text="Flight computer config",
                  bg="#1a1a2e", fg="#aaaaaa",
@@ -1686,6 +1751,16 @@ class GroundStationApp:
         dropped_this_tick = 0
         prev_time_s = self.last_telem.time_s if self.last_telem else None
         for t in packets:
+            # Signal-quality gate: drop garbage from weak/dying link
+            ok, reason = self._is_packet_valid(t)
+            if not ok:
+                self._filtered_count += 1
+                # Rate-limit the event spam
+                if self._filtered_count % 5 == 1:
+                    self.events.add(SEV_WARN, "filter",
+                                    f"Dropped bad packet: {reason}")
+                continue
+
             if self.t_offset is None:
                 self.t_offset = t.time_s
                 self.events.reset_mission_time()
@@ -2005,6 +2080,22 @@ class GroundStationApp:
         else:
             self.events.add(SEV_INFO, "sim", "Simulation mode disabled")
 
+    # ── New: RSSI filter controls ───────────────────────────────
+    def _apply_rssi_threshold(self):
+        try:
+            val = int(self.rssi_entry.get().strip())
+            self.config["min_rssi_dbm"] = val
+            self.events.add(SEV_INFO, "filter",
+                            f"Min valid RSSI set to {val} dBm")
+        except ValueError:
+            self.events.add(SEV_WARN, "filter",
+                            f"Bad RSSI value: {self.rssi_entry.get()!r}")
+
+    def _toggle_reject(self):
+        self.config["reject_garbage"] = bool(self.reject_var.get())
+        state = "ENABLED" if self.config["reject_garbage"] else "DISABLED"
+        self.events.add(SEV_INFO, "filter", f"Garbage rejection {state}")
+
     # ── New: units toggle ────────────────────────────────────────
     def _apply_units(self):
         self.config["units"] = self.units_var.get()
@@ -2196,6 +2287,7 @@ class GroundStationApp:
         self.diag_stats.configure(
             text=f"Packets: {self.reader.packet_count}  |  "
                  f"Dropped: {dropped}  |  "
+                 f"Filtered: {self._filtered_count}  |  "
                  f"Last age: {age:.2f}s  |  "
                  f"RSSI: {rssi} dBm")
         if t is None:
