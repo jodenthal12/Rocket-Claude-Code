@@ -175,6 +175,10 @@ def parse_line(line: str) -> "Telemetry | None":
             t.cont1  = int(fp[10])   if len(fp) > 10 else 0
             t.cont2  = int(fp[11])   if len(fp) > 11 else 0
             t.temp_c = float(fp[12]) if len(fp) > 12 else 0.0
+            # Gyro body-frame rates (°/s) — added in flight_v3 gyro upgrade
+            t.gx = float(fp[13]) if len(fp) > 13 else 0.0
+            t.gy = float(fp[14]) if len(fp) > 14 else 0.0
+            t.gz = float(fp[15]) if len(fp) > 15 else 0.0
             return t
 
         # Data: D,seq,ax,ay,az,gx,gy,gz,temp,pres,alt,vbat,c1,c2,arm
