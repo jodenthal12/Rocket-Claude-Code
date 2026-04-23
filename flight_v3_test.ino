@@ -21,11 +21,11 @@ constexpr uint8_t PIN_CS_GYRO    = 7;
 constexpr uint8_t PIN_CS_ACCEL   = 8;
 constexpr uint8_t PIN_CS_BMP     = 9;
 constexpr uint8_t PIN_CS_LORA    = 10;
-constexpr uint8_t PIN_CS_SD      = 6;   // SD card chip select
+constexpr uint8_t PIN_CS_SD      = 4;   // SD card chip select
 constexpr uint8_t PIN_BUTTON     = 16;
 constexpr uint8_t PIN_ARM_SW     = 15;  // physical arm switch
 constexpr uint8_t PIN_CONT1      = 19;
-constexpr uint8_t PIN_CONT2      = 21;
+constexpr uint8_t PIN_CONT2      = 6;
 constexpr uint8_t PIN_VBAT_DIV   = 22;
 constexpr uint8_t PIN_SK6812     = 24;
 
