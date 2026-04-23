@@ -25,7 +25,7 @@ constexpr uint8_t PIN_CS_BMP     = 9;
 constexpr uint8_t PIN_CS_LORA    = 10;
 constexpr uint8_t PIN_CS_SD      = 6;   // SD card chip select
 constexpr uint8_t PIN_BUTTON     = 16;
-constexpr uint8_t PIN_ARM_SW     = 17;
+constexpr uint8_t PIN_ARM_SW     = 15;  // physical arm switch
 constexpr uint8_t PIN_CONT1      = 19;
 constexpr uint8_t PIN_CONT2      = 21;
 constexpr uint8_t PIN_VBAT_DIV   = 22;
@@ -357,10 +357,32 @@ void service_pyro_timer(uint32_t now) {
     digitalWrite(PIN_PYRO1_FIRE, LOW);
     digitalWrite(PIN_PYRO2_FIRE, LOW);
     pyro_active = false;
-    led(LED_P1, 0x001000);
-    led(LED_P2, 0x001000);
     Serial.println("Pyro gates LOW (fire complete)");
   }
+}
+
+// ---------- Continuous LED status (runs every 100 ms) ----------
+// LED_ARM  : RED if arm switch ON,    GREEN if arm switch OFF
+// LED_P1   : GREEN if pyro 1 has continuity, RED if open
+// LED_P2   : GREEN if pyro 2 has continuity, RED if open
+// Pyro LEDs go bright red during active fire; restored on next tick.
+void update_status_leds(uint32_t now) {
+  static uint32_t last_ms = 0;
+  if (now - last_ms < 100) return;
+  last_ms = now;
+
+  bool arm_on = (digitalRead(PIN_ARM_SW) == HIGH);
+  leds.setPixelColor(LED_ARM, arm_on ? 0x200000 : 0x002000);
+
+  if (!pyro_active) {
+    int c1 = analogRead(PIN_CONT1);
+    int c2 = analogRead(PIN_CONT2);
+    bool c1_ok = (c1 > CONT_MIN_RAW && c1 < CONT_MAX_RAW);
+    bool c2_ok = (c2 > CONT_MIN_RAW && c2 < CONT_MAX_RAW);
+    leds.setPixelColor(LED_P1, c1_ok ? 0x002000 : 0x200000);
+    leds.setPixelColor(LED_P2, c2_ok ? 0x002000 : 0x200000);
+  }
+  leds.show();
 }
 
 // ---------- Preflight ----------
@@ -497,6 +519,7 @@ void loop() {
   last_tick = now;
 
   service_pyro_timer(now);
+  update_status_leds(now);
 
   // --- Baro: ONE performReading() per loop, use bmp.pressure directly ---
   float raw_baro_alt = isnan(last_baro_alt) ? NAN : last_baro_alt;
@@ -534,9 +557,8 @@ void loop() {
   if (state == ST_READY && !prev_arm_sw && arm_sw) {
     state = ST_ARMED;
     Serial.println(">> ARMED");
-    led(LED_ARM, 0x200000);                             // red = armed
-    led(LED_P1, 0x201000); led(LED_P2, 0x201000);      // amber = pyros live
     beep(1500, 60); beep(1500, 60); beep(1500, 60);
+    // LEDs handled continuously by update_status_leds()
   }
   prev_arm_sw = arm_sw;
 
@@ -549,37 +571,15 @@ void loop() {
 
     case ST_READY: {
       pyro_safe();
-      // Update continuity LEDs at 4 Hz (dim colors = not armed yet)
-      static uint32_t last_cont_ms = 0;
-      if (now - last_cont_ms >= 250) {
-        last_cont_ms = now;
-        int c1 = analogRead(PIN_CONT1);
-        int c2 = analogRead(PIN_CONT2);
-        // Set in buffer — the ARM blink's leds.show() will pick these up
-        leds.setPixelColor(LED_P1, (c1 > CONT_MIN_RAW && c1 < CONT_MAX_RAW)
-                                     ? 0x001400 : 0x140000);  // dim green=OK, dim red=OPEN
-        leds.setPixelColor(LED_P2, (c2 > CONT_MIN_RAW && c2 < CONT_MAX_RAW)
-                                     ? 0x001400 : 0x140000);
-      }
-      // Blink ARM green — also calls leds.show(), showing P1/P2 from buffer above
-      led(LED_ARM, (now / 500) % 2 ? 0x002000 : 0);
+      // LEDs now handled continuously by update_status_leds()
       break;
     }
 
     case ST_ARMED: {
-      // Show continuity status on pyro LEDs while armed
-      int c1_raw = analogRead(PIN_CONT1);
-      int c2_raw = analogRead(PIN_CONT2);
-      leds.setPixelColor(LED_ARM, 0x200000);   // red = armed
-      leds.setPixelColor(LED_P1, (c1_raw > CONT_MIN_RAW && c1_raw < CONT_MAX_RAW)
-                                    ? 0x002000 : 0x200000);  // green=OK, red=OPEN
-      leds.setPixelColor(LED_P2, (c2_raw > CONT_MIN_RAW && c2_raw < CONT_MAX_RAW)
-                                    ? 0x002000 : 0x200000);
-      leds.show();
+      // LEDs now handled continuously by update_status_leds()
       if (!arm_sw) {
         state = ST_READY;
         Serial.println(">> DISARMED");
-        led(LED_P1, 0); led(LED_P2, 0);    // pyro LEDs off
         break;
       }
       if (accel_g > LAUNCH_ACCEL_G) {
@@ -666,7 +666,7 @@ void loop() {
         Serial.println(">> SD card finalized");
       }
       if ((now / 1000) % 3 == 0 && (now % 1000) < 50) beep(3000, 40);
-      led(LED_ARM, (now / 250) % 2 ? 0x202000 : 0);
+      // LED_ARM still reflects switch state via update_status_leds()
       break;
   }
 
