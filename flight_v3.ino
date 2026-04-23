@@ -45,7 +45,7 @@ constexpr uint32_t LANDED_STILL_MS   = 3000;
 constexpr float    LANDED_ALT_BAND   = 0.8f;
 constexpr uint32_t FLIGHT_TIMEOUT_MS = 120000;
 constexpr float    VBAT_MIN          = 7.0f;
-constexpr int      CONT_MIN_RAW      = 200;
+constexpr int      CONT_MIN_RAW      = 500;
 constexpr int      CONT_MAX_RAW      = 3800;
 constexpr float    SEA_LEVEL_HPA     = 1013.25f;
 
@@ -381,6 +381,15 @@ void update_status_leds(uint32_t now) {
     bool c2_ok = (c2 > CONT_MIN_RAW && c2 < CONT_MAX_RAW);
     leds.setPixelColor(LED_P1, c1_ok ? 0x002000 : 0x200000);
     leds.setPixelColor(LED_P2, c2_ok ? 0x002000 : 0x200000);
+
+    // Print raw ADC every ~2 s for diagnostics
+    static uint32_t last_cont_dbg = 0;
+    if (now - last_cont_dbg >= 2000) {
+      last_cont_dbg = now;
+      Serial.printf("  CONT_RAW c1=%d(%s) c2=%d(%s)\n",
+                    c1, c1_ok ? "OK" : "OPEN",
+                    c2, c2_ok ? "OK" : "OPEN");
+    }
   }
   leds.show();
 }
@@ -474,7 +483,11 @@ void setup() {
   pinMode(PIN_ARM_SW, INPUT_PULLDOWN);   // switch to 3.3V = ARMED, open = SAFE
   pinMode(PIN_BUTTON, INPUT_PULLUP);
   pinMode(PIN_CONT1, INPUT_PULLDOWN);    // disconnected pyro reads 0 (OPEN/RED)
-  pinMode(PIN_CONT2, INPUT_PULLDOWN);    // connected pyro+resistor pulls into 200-3800 band (OK/GREEN)
+  pinMode(PIN_CONT2, INPUT_PULLDOWN);    // connected pyro+resistor pulls into 500-3800 band (OK/GREEN)
+  delay(10);  // let pins settle
+  Serial.printf("  CONT_RAW: c1=%d c2=%d (threshold %d-%d)\n",
+                analogRead(PIN_CONT1), analogRead(PIN_CONT2),
+                CONT_MIN_RAW, CONT_MAX_RAW);
   pinMode(PIN_VBAT_DIV, INPUT);
   analogReadResolution(12);
 
