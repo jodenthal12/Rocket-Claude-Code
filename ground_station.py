@@ -375,9 +375,9 @@ class PreflightChecklist:
             "cont1":       {"label": "Pyro 1 continuity",      "required": True,  "manual": False, "status": None, "bypassed": False},
             "cont2":       {"label": "Pyro 2 continuity",      "required": True,  "manual": False, "status": None, "bypassed": False},
             "sensors":     {"label": "Sensors producing data", "required": True,  "manual": False, "status": None, "bypassed": False},
-            "sd":          {"label": "SD card writable",       "required": False, "manual": True,  "status": None, "bypassed": False},
+            "sd":          {"label": "SD card writable",       "required": True,  "manual": True,  "status": None, "bypassed": False},
             "zero_alt":    {"label": "Zero-altitude calibrated","required": True, "manual": True,  "status": None, "bypassed": False},
-            "ground_pres": {"label": "Ground pressure set",    "required": False, "manual": True,  "status": None, "bypassed": False},
+            "ground_pres": {"label": "Ground pressure set",    "required": True,  "manual": True,  "status": None, "bypassed": False},
             "rocket_ok":   {"label": "Rocket visually OK",     "required": True,  "manual": True,  "status": None, "bypassed": False},
             "pad_clear":   {"label": "Pad area clear",         "required": True,  "manual": True,  "status": None, "bypassed": False},
             "fill":        {"label": "Water/pressure set",     "required": True,  "manual": True,  "status": None, "bypassed": False},
@@ -386,7 +386,9 @@ class PreflightChecklist:
     def set_manual(self, key: str, ok: bool):
         if key in self.items:
             self.items[key]["bypassed"] = ok
-            self.items[key]["status"] = True if ok else self.items[key]["status"]
+            # Clearing the bypass resets status so manual items don't stick
+            # at "passed" forever; auto items will be repopulated next tick.
+            self.items[key]["status"] = True if ok else None
 
     def update_auto(self, connected: bool, pkt_count: int, last_pkt_age: float,
                     t: "Telemetry | None"):
@@ -952,8 +954,13 @@ class GroundStationApp:
         self.btn_disarm = tk.Button(
             ctl, text="DISARM / SAFE", font=("Consolas", 14, "bold"),
             bg="#cc0000", fg="white", relief=tk.RAISED, bd=3,
-            width=16, height=2, command=self._send_safe)
+            width=16, height=2, command=self._disarm_from_preflight)
         self.btn_disarm.pack(side=tk.RIGHT, padx=8)
+
+        self.preflight_disarm_status = tk.Label(
+            ctl, text="", bg="#1a1a2e", fg="#aaaaaa",
+            font=("Consolas", 10, "bold"))
+        self.preflight_disarm_status.pack(side=tk.RIGHT, padx=8)
 
     # ── Events tab ──────────────────────────────────────────────
     def _build_events_tab(self, parent):
@@ -1922,6 +1929,35 @@ class GroundStationApp:
             self.preflight.set_manual(key, True)
         self.events.add(SEV_WARN, "preflight", "ALL checks bypassed manually")
         self._refresh_preflight()
+
+    def _disarm_from_preflight(self):
+        if self.config.get("sim_mode"):
+            self.preflight_disarm_status.configure(
+                text="SIM: SAFE (no radio)", fg="#ff8800")
+            self.events.add(SEV_INFO, "sim", "[sim] SAFE")
+            self.root.after(2000, lambda: self.preflight_disarm_status.configure(text=""))
+            return
+        if not self.reader.connected:
+            self.preflight_disarm_status.configure(
+                text="NOT CONNECTED", fg="#ff4444")
+            self.events.add(SEV_WARN, "cmd", "DISARM: not connected")
+            self.root.after(2000, lambda: self.preflight_disarm_status.configure(text=""))
+            return
+        if self.reader.send_command("CMD,SAFE"):
+            self.preflight_disarm_status.configure(
+                text="SAFE SENT ×3", fg="#00ff88")
+            self.events.add(SEV_WARN, "cmd", "DISARM/SAFE sent")
+            self.root.after(200, lambda: self.reader.send_command("CMD,SAFE"))
+            self.root.after(400, lambda: self.reader.send_command("CMD,SAFE"))
+            if hasattr(self, "safe_status"):
+                self.safe_status.configure(text="SAFE SENT", foreground="#ff8800")
+            if hasattr(self, "btn_safe"):
+                self.btn_safe.configure(bg="#884400", text="SAFE SENT")
+            self.root.after(3000, lambda: self.preflight_disarm_status.configure(text=""))
+        else:
+            self.preflight_disarm_status.configure(
+                text="SEND FAILED", fg="#ff4444")
+            self.events.add(SEV_FAULT, "cmd", "DISARM send failed")
 
     def _clear_all_bypass(self):
         for key in self.preflight.items.keys():
