@@ -54,7 +54,9 @@ void loop() {
       buf[len] = '\0';
 
       int16_t rssi = rf95.lastRssi();
-      float snr = 0.0f;
+      // RH_RF95_REG_19_PKT_SNR_VALUE: signed byte, value = SNR * 4
+      int8_t  snr_raw = (int8_t)rf95.spiRead(0x19);
+      float   snr = snr_raw / 4.0f;
 
       digitalWrite(PIN_LED, HIGH);
       Serial.print(F("R,"));

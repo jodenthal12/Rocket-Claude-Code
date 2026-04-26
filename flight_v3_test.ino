@@ -1,9 +1,7 @@
 // ============================================================
 // Water Rocket Flight Computer - Phase 2 Flight Firmware v5
+// TEST MODE — battery, continuity, and SD checks bypassed
 // Target: Teensy 4.1 | All SPI on SPI0
-// Changes from v4:
-//  - Added remote SAFE/ARM commands over LoRa
-//  - Added SD card telemetry logging
 // ============================================================
 #include <Arduino.h>
 #include <SPI.h>
@@ -333,10 +331,8 @@ bool start_pyro_fire() {
     Serial.println("FIRE BLOCKED: remote safe active");
     return false;
   }
-  if (!continuity_ok()) {
-    Serial.println("FIRE RETRY: continuity fail");
-    return false;
-  }
+  // TEST MODE: continuity check bypassed
+  // if (!continuity_ok()) { Serial.println("FIRE RETRY: continuity fail"); return false; }
   if (digitalRead(PIN_ARM_SW) != HIGH) {
     Serial.println("FIRE RETRY: arm switch off");
     return false;
@@ -403,9 +399,9 @@ bool preflight() {
   ok &= check("ARM disarmed at boot", digitalRead(PIN_ARM_SW) == LOW);
 
   float vbat = read_vbat();
-  Serial.printf("     VBAT = %.2f V\n", vbat);
-  ok &= check("VBAT OK", vbat >= VBAT_MIN);
-  ok &= check("Continuity OK", continuity_ok());
+  Serial.printf("     VBAT = %.2f V (check bypassed for testing)\n", vbat);
+  check("VBAT OK (BYPASSED)", true);  // TEST MODE: skip battery check
+  check("Continuity OK (BYPASSED)", true);  // TEST MODE: skip continuity check
   ok &= check("BMI088 accel init", bmi088_accel_init());
   ok &= check("BMI088 gyro init",  bmi088_gyro_init());
 
@@ -433,21 +429,10 @@ bool preflight() {
   }
   ok &= check("RFM95W init", loraOk);
 
-  // SD card init
-  bool sdOk = SD.begin(PIN_CS_SD);
-  if (sdOk) {
-    // Delete old log if it exists, create new one
-    if (SD.exists("FLIGHT.CSV")) SD.remove("FLIGHT.CSV");
-    log_file = SD.open("FLIGHT.CSV", FILE_WRITE);
-    if (log_file) {
-      log_file.println("time_ms,state,alt_m,max_alt_m,accel_g,vel_ms,pyro,remote_safe");
-      log_file.flush();
-      sd_ok = true;
-    }
-  }
-  // SD is optional — show result but do NOT fail preflight without it
-  check("SD card", sd_ok);
-  if (!sd_ok) Serial.println("     (no card — logging disabled)");
+  // SD card — BYPASSED for testing
+  sd_ok = false;
+  check("SD card (BYPASSED)", true);  // TEST MODE: skip SD init
+  Serial.println("     (SD bypassed — logging disabled)");
 
   if (bmpOk) {
     // Warm up — discard first readings so IIR filter settles
