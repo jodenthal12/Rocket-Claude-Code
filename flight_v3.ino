@@ -790,16 +790,17 @@ void loop() {
   uint32_t tx_interval = critical ? 100 : 1000;
   if (now - last_tx >= tx_interval && state >= ST_READY) {
     last_tx = now;
-    char buf[160];
+    char buf[180];
     int n = snprintf(buf, sizeof(buf),
-                     "F,%lu,%d,%.1f,%.1f,%.2f,%.1f,%d,%d,%.1f,%d,%d,%.1f,%.1f,%.1f,%.1f",
+                     "F,%lu,%d,%.1f,%.1f,%.2f,%.1f,%d,%d,%.1f,%d,%d,%.1f,%.1f,%.1f,%.1f,%d,%d",
                      now, (int)state,
                      isnan(alt_agl) ? 0.0f : alt_agl, max_alt,
                      accel_g, vel_est, pyro_fired, remote_safe,
                      read_vbat(),
                      analogRead(PIN_CONT1), analogRead(PIN_CONT2),
                      bmp.temperature,
-                     gx_dps, gy_dps, gz_dps);
+                     gx_dps, gy_dps, gz_dps,
+                     (int)sd_ok, (int)(digitalRead(PIN_ARM_SW) == HIGH));
     rf95.setModeIdle();          // ensure radio is idle before TX
     rf95.send((uint8_t*)buf, n);  // starts TX — do NOT call waitPacketSent()
     // waitPacketSent() would deadlock because poll() can't run while blocked

@@ -126,6 +126,8 @@ class Telemetry:
         self.gx = 0.0; self.gy = 0.0; self.gz = 0.0
         self.temp_c = 0.0; self.pres_hpa = 0.0; self.vbat = 0.0
         self.cont1 = 0; self.cont2 = 0; self.arm = 0
+        self.sd_ok = None  # None=unknown (firmware too old), True/False
+        self.arm_sw = None # None=unknown, True=switch HIGH, False=switch LOW
 
     def to_csv_row(self, elapsed: float) -> list:
         return [
@@ -179,6 +181,8 @@ def parse_line(line: str) -> "Telemetry | None":
             t.gx = float(fp[13]) if len(fp) > 13 else 0.0
             t.gy = float(fp[14]) if len(fp) > 14 else 0.0
             t.gz = float(fp[15]) if len(fp) > 15 else 0.0
+            t.sd_ok  = bool(int(fp[16])) if len(fp) > 16 else None
+            t.arm_sw = bool(int(fp[17])) if len(fp) > 17 else None
             return t
 
         # Data: D,seq,ax,ay,az,gx,gy,gz,temp,pres,alt,vbat,c1,c2,arm
@@ -407,6 +411,9 @@ class PreflightChecklist:
         _set("cont2", (200 < t.cont2 < 3800) if t.cont2 else None)
         _set("sensors", (t.temp_c != 0 or t.pres_hpa != 0
                          or t.alt != 0 or t.accel != 0))
+        # sd_ok comes from firmware (None = old firmware, leave manual)
+        if getattr(t, "sd_ok", None) is not None:
+            _set("sd", bool(t.sd_ok))
 
     def all_required_passed(self) -> bool:
         for it in self.items.values():
@@ -1238,6 +1245,34 @@ class GroundStationApp:
             self.root.after(200, lambda: self.reader.send_command("CMD,SAFE"))
             self.root.after(400, lambda: self.reader.send_command("CMD,SAFE"))
 
+    def _update_arm_button(self):
+        """Reflect armed state on btn_arm:
+        - Solid GREEN: state == ST_ARMED (2) AND not remote_safe (fully armed)
+        - FLASHING green/dark: physical switch ON but state not armed
+        - RED: switch off / no telemetry
+        """
+        if not hasattr(self, "btn_arm"):
+            return
+        t = self.last_telem
+        connected = self.reader.connected and t is not None
+        is_armed = connected and t.state == 2 and not t.remote_safe
+        switch_only = (connected and not is_armed
+                       and getattr(t, "arm_sw", False) is True)
+
+        if is_armed:
+            self.btn_arm.configure(bg="#006600", fg="white",
+                                   text="ARMED", state=tk.NORMAL)
+        elif switch_only:
+            # Flash between green and dark every ~500 ms
+            phase = int(time.monotonic() * 2) % 2
+            color = "#006600" if phase == 0 else "#222222"
+            self.btn_arm.configure(bg=color, fg="white",
+                                   text="SWITCH ON (SAFED)",
+                                   state=tk.NORMAL)
+        else:
+            self.btn_arm.configure(bg="#cc0000", fg="white",
+                                   text="RE-ARM", state=tk.NORMAL)
+
     def _send_arm(self):
         if not self.reader.connected:
             self.safe_status.configure(text="NOT CONNECTED", foreground="#ff4444")
@@ -1678,6 +1713,7 @@ class GroundStationApp:
 
         # Banner + diagnostics + events
         self._update_banner(self.last_telem)
+        self._update_arm_button()
         if hasattr(self, "diag_stats"):
             self._update_diag(self.last_telem, dropped_this_tick)
         if hasattr(self, "events_text"):
@@ -1773,23 +1809,17 @@ class GroundStationApp:
                                        foreground="#00ff88")
             self.btn_safe.configure(bg="#006600", text="PYROS SAFE",
                                     state=tk.NORMAL)
-            self.btn_arm.configure(bg="#cc0000", text="RE-ARM",
-                                   state=tk.NORMAL)
         elif t.pyro:
             self.pyro_label.configure(text="FIRED", foreground="#ff4444")
         elif t.state == 2:
             self.pyro_label.configure(text="ARMED", foreground="#ff8800")
             self.btn_safe.configure(bg="#cc0000", text="SAFE PYROS",
                                     state=tk.NORMAL)
-            self.btn_arm.configure(bg="#006600", text="ARMED",
-                                   state=tk.NORMAL)
             self.safe_status.configure(text="", foreground="#888888")
         else:
             self.pyro_label.configure(text="SAFE", foreground="#00ff88")
             self.btn_safe.configure(bg="#cc0000", text="SAFE PYROS",
                                     state=tk.NORMAL)
-            self.btn_arm.configure(bg="#555555", text="RE-ARM",
-                                   state=tk.NORMAL)
 
     # ── Pre-launch checklist ─────────────────────────────────────
     def _update_checklist(self, t: Telemetry):
