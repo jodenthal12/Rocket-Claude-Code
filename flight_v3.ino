@@ -362,7 +362,7 @@ void service_pyro_timer(uint32_t now) {
 }
 
 // ---------- Continuous LED status (runs every 100 ms) ----------
-// LED_ARM  : RED if arm switch ON,    GREEN if arm switch OFF
+// LED_ARM  : GREEN if armed (switch ON and not remote-safed), RED if safe
 // LED_P1   : GREEN if pyro 1 has continuity, RED if open
 // LED_P2   : GREEN if pyro 2 has continuity, RED if open
 // Pyro LEDs go bright red during active fire; restored on next tick.
@@ -371,8 +371,8 @@ void update_status_leds(uint32_t now) {
   if (now - last_ms < 100) return;
   last_ms = now;
 
-  bool arm_on = (digitalRead(PIN_ARM_SW) == HIGH);
-  leds.setPixelColor(LED_ARM, arm_on ? 0x200000 : 0x002000);
+  bool armed = (digitalRead(PIN_ARM_SW) == HIGH) && !remote_safe;
+  leds.setPixelColor(LED_ARM, armed ? 0x002000 : 0x200000);  // GREEN=armed, RED=safe
 
   if (!pyro_active) {
     int c1 = analogRead(PIN_CONT1);
