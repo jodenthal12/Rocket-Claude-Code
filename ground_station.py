@@ -366,41 +366,45 @@ class PreflightChecklist:
     """
 
     def __init__(self):
-        # key: (label, required, manual, status) — status None=unknown, True/False
+        # key: (label, required, manual, status, bypassed)
+        # status: None=unknown, True/False  |  bypassed: locks status to True
         self.items: dict[str, dict] = {
-            "radio":       {"label": "Radio link active",      "required": True,  "manual": False, "status": None},
-            "packets":     {"label": "Telemetry updating",     "required": True,  "manual": False, "status": None},
-            "battery":     {"label": "Battery voltage >= 7.0V","required": True,  "manual": False, "status": None},
-            "cont1":       {"label": "Pyro 1 continuity",      "required": True,  "manual": False, "status": None},
-            "cont2":       {"label": "Pyro 2 continuity",      "required": True,  "manual": False, "status": None},
-            "sensors":     {"label": "Sensors producing data", "required": True,  "manual": False, "status": None},
-            "sd":          {"label": "SD card writable",       "required": False, "manual": True,  "status": None},
-            "zero_alt":    {"label": "Zero-altitude calibrated","required": True, "manual": True,  "status": None},
-            "ground_pres": {"label": "Ground pressure set",    "required": False, "manual": True,  "status": None},
-            "rocket_ok":   {"label": "Rocket visually OK",     "required": True,  "manual": True,  "status": None},
-            "pad_clear":   {"label": "Pad area clear",         "required": True,  "manual": True,  "status": None},
-            "fill":        {"label": "Water/pressure set",     "required": True,  "manual": True,  "status": None},
+            "radio":       {"label": "Radio link active",      "required": True,  "manual": False, "status": None, "bypassed": False},
+            "packets":     {"label": "Telemetry updating",     "required": True,  "manual": False, "status": None, "bypassed": False},
+            "battery":     {"label": "Battery voltage >= 7.0V","required": True,  "manual": False, "status": None, "bypassed": False},
+            "cont1":       {"label": "Pyro 1 continuity",      "required": True,  "manual": False, "status": None, "bypassed": False},
+            "cont2":       {"label": "Pyro 2 continuity",      "required": True,  "manual": False, "status": None, "bypassed": False},
+            "sensors":     {"label": "Sensors producing data", "required": True,  "manual": False, "status": None, "bypassed": False},
+            "sd":          {"label": "SD card writable",       "required": False, "manual": True,  "status": None, "bypassed": False},
+            "zero_alt":    {"label": "Zero-altitude calibrated","required": True, "manual": True,  "status": None, "bypassed": False},
+            "ground_pres": {"label": "Ground pressure set",    "required": False, "manual": True,  "status": None, "bypassed": False},
+            "rocket_ok":   {"label": "Rocket visually OK",     "required": True,  "manual": True,  "status": None, "bypassed": False},
+            "pad_clear":   {"label": "Pad area clear",         "required": True,  "manual": True,  "status": None, "bypassed": False},
+            "fill":        {"label": "Water/pressure set",     "required": True,  "manual": True,  "status": None, "bypassed": False},
         }
 
     def set_manual(self, key: str, ok: bool):
         if key in self.items:
-            self.items[key]["status"] = ok
+            self.items[key]["bypassed"] = ok
+            self.items[key]["status"] = True if ok else self.items[key]["status"]
 
     def update_auto(self, connected: bool, pkt_count: int, last_pkt_age: float,
                     t: "Telemetry | None"):
-        self.items["radio"]["status"] = connected and last_pkt_age < STALE_TIMEOUT_S
-        self.items["packets"]["status"] = pkt_count > 5 and last_pkt_age < STALE_TIMEOUT_S
+        def _set(key, val):
+            if not self.items[key]["bypassed"]:
+                self.items[key]["status"] = val
+
+        _set("radio", connected and last_pkt_age < STALE_TIMEOUT_S)
+        _set("packets", pkt_count > 5 and last_pkt_age < STALE_TIMEOUT_S)
         if t is None:
-            self.items["battery"]["status"] = None
-            self.items["cont1"]["status"] = None
-            self.items["cont2"]["status"] = None
-            self.items["sensors"]["status"] = None
+            for k in ("battery", "cont1", "cont2", "sensors"):
+                _set(k, None)
             return
-        self.items["battery"]["status"] = t.vbat >= 7.0 if t.vbat > 0 else None
-        self.items["cont1"]["status"] = (200 < t.cont1 < 3800) if t.cont1 else None
-        self.items["cont2"]["status"] = (200 < t.cont2 < 3800) if t.cont2 else None
-        self.items["sensors"]["status"] = (t.temp_c != 0 or t.pres_hpa != 0
-                                            or t.alt != 0 or t.accel != 0)
+        _set("battery", t.vbat >= 7.0 if t.vbat > 0 else None)
+        _set("cont1", (200 < t.cont1 < 3800) if t.cont1 else None)
+        _set("cont2", (200 < t.cont2 < 3800) if t.cont2 else None)
+        _set("sensors", (t.temp_c != 0 or t.pres_hpa != 0
+                         or t.alt != 0 or t.accel != 0))
 
     def all_required_passed(self) -> bool:
         for it in self.items.values():
@@ -1892,19 +1896,25 @@ class GroundStationApp:
 
     # ── New: preflight manual toggle ─────────────────────────────
     def _toggle_manual_check(self, key: str):
-        cur = self.preflight.items[key]["status"]
-        new = True if cur is not True else False
+        cur_bypassed = self.preflight.items[key].get("bypassed", False)
+        new = not cur_bypassed
         self.preflight.set_manual(key, new)
         self.events.add(SEV_INFO, "preflight",
-                        f"{key}: {'OK' if new else 'cleared'}")
+                        f"{key}: {'BYPASSED' if new else 'cleared'}")
 
     def _refresh_preflight(self):
         for key, (st_lbl, btn) in self._check_rows.items():
-            status = self.preflight.items[key]["status"]
-            if status is True:
+            item = self.preflight.items[key]
+            bypassed = item.get("bypassed", False)
+            status = item["status"]
+            if bypassed:
+                st_lbl.configure(text=" ⊘ ", fg="#ffaa00")
+                if btn:
+                    btn.configure(bg="#aa6600", text=" Clear ")
+            elif status is True:
                 st_lbl.configure(text=" ✓ ", fg="#00ff88")
                 if btn:
-                    btn.configure(bg="#006600", text="  OK  ")
+                    btn.configure(bg="#2196F3", text="Mark OK")
             elif status is False:
                 st_lbl.configure(text=" ✗ ", fg="#ff4444")
                 if btn:
