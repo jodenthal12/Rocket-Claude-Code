@@ -383,7 +383,7 @@ class PreflightChecklist:
         }
 
     def set_manual(self, key: str, ok: bool):
-        if key in self.items and self.items[key]["manual"]:
+        if key in self.items:
             self.items[key]["status"] = ok
 
     def update_auto(self, connected: bool, pkt_count: int, last_pkt_age: float,
@@ -510,62 +510,6 @@ class SimulationSource:
         return t
 
 
-# ── Orientation estimator ─────────────────────────────────────
-class OrientationEstimator:
-    """Complementary filter: gyro integration stabilized by accel gravity vector.
-
-    Angles in degrees. Pitch = nose tilt forward/back, Roll = side tilt,
-    Yaw = heading around vertical.
-    """
-
-    def __init__(self):
-        self.pitch = 0.0
-        self.roll = 0.0
-        self.yaw = 0.0
-        self._last_t: float | None = None
-        self.alpha = 0.96  # weight on gyro (higher = trust gyro more)
-
-    def reset(self):
-        self.pitch = 0.0
-        self.roll = 0.0
-        self.yaw = 0.0
-        self._last_t = None
-
-    def update(self, t: "Telemetry"):
-        if self._last_t is None:
-            self._last_t = t.time_s
-            return
-        dt = t.time_s - self._last_t
-        self._last_t = t.time_s
-        if dt <= 0 or dt > 1.0:
-            return
-
-        # Gyro integration (gx/gy/gz assumed deg/s in body frame)
-        pitch_g = self.pitch + t.gx * dt
-        roll_g  = self.roll  + t.gy * dt
-        self.yaw = (self.yaw + t.gz * dt) % 360.0
-
-        # Accel-derived pitch/roll (gravity tells us which way is "down")
-        mag = math.sqrt(t.ax * t.ax + t.ay * t.ay + t.az * t.az)
-        if 0.5 < mag < 1.8:   # near 1g -> gravity dominates
-            denom_p = math.sqrt(t.ay * t.ay + t.az * t.az) or 1e-6
-            pitch_a = math.degrees(math.atan2(t.ax, denom_p))
-            roll_a  = math.degrees(math.atan2(t.ay, t.az if t.az != 0 else 1e-6))
-            self.pitch = self.alpha * pitch_g + (1 - self.alpha) * pitch_a
-            self.roll  = self.alpha * roll_g  + (1 - self.alpha) * roll_a
-        else:
-            self.pitch = pitch_g
-            self.roll = roll_g
-
-    def tilt_from_vertical(self) -> float:
-        """Total tilt (deg) from straight-up."""
-        p = math.radians(self.pitch)
-        r = math.radians(self.roll)
-        # Combined tilt magnitude from pitch + roll
-        return math.degrees(math.acos(max(-1.0, min(1.0,
-                    math.cos(p) * math.cos(r)))))
-
-
 # ── Fault detector ────────────────────────────────────────────
 class FaultDetector:
     """Detects impossible / suspicious values and raises events."""
@@ -653,7 +597,6 @@ class GroundStationApp:
         self.preflight = PreflightChecklist()
         self.fault_detector = FaultDetector(self.events)
         self.sim_source = SimulationSource()
-        self.orientation = OrientationEstimator()
         self.config = dict(DEFAULT_CONFIG)
 
         # Runtime state
@@ -768,14 +711,12 @@ class GroundStationApp:
 
         dash_tab = ttk.Frame(notebook, style="Dark.TFrame")
         preflight_tab = ttk.Frame(notebook, style="Dark.TFrame")
-        orient_tab = ttk.Frame(notebook, style="Dark.TFrame")
         events_tab = ttk.Frame(notebook, style="Dark.TFrame")
         review_tab = ttk.Frame(notebook, style="Dark.TFrame")
         settings_tab = ttk.Frame(notebook, style="Dark.TFrame")
         diag_tab = ttk.Frame(notebook, style="Dark.TFrame")
         notebook.add(dash_tab, text="Dashboard")
         notebook.add(preflight_tab, text="Preflight")
-        notebook.add(orient_tab, text="Orientation")
         notebook.add(events_tab, text="Events")
         notebook.add(review_tab, text="Review")
         notebook.add(settings_tab, text="Settings")
@@ -786,7 +727,6 @@ class GroundStationApp:
         main.pack(fill=tk.BOTH, expand=True, padx=8, pady=6)
 
         self._preflight_tab = preflight_tab
-        self._orient_tab = orient_tab
         self._events_tab = events_tab
         self._review_tab = review_tab
         self._settings_tab = settings_tab
@@ -928,163 +868,10 @@ class GroundStationApp:
 
         # Build remaining tabs
         self._build_preflight_tab(self._preflight_tab)
-        self._build_orient_tab(self._orient_tab)
         self._build_events_tab(self._events_tab)
         self._build_review_tab(self._review_tab)
         self._build_settings_tab(self._settings_tab)
         self._build_diag_tab(self._diag_tab)
-
-    # ── Orientation tab ──────────────────────────────────────────
-    def _build_orient_tab(self, parent):
-        top = tk.Frame(parent, bg="#1a1a2e")
-        top.pack(fill=tk.X, padx=8, pady=(8, 4))
-        ttk.Label(top, text="LIVE ORIENTATION", style="Title.TLabel").pack(
-            side=tk.LEFT)
-        tk.Button(top, text="Zero orientation", bg="#555555", fg="white",
-                  font=("Consolas", 9, "bold"),
-                  command=self._zero_orientation).pack(side=tk.RIGHT, padx=4)
-
-        body = tk.Frame(parent, bg="#0f0f1a")
-        body.pack(fill=tk.BOTH, expand=True, padx=8, pady=4)
-
-        # 3D rocket figure
-        self.orient_fig = Figure(figsize=(5, 5), facecolor="#0f0f1a")
-        self.orient_ax = self.orient_fig.add_subplot(111, projection="3d")
-        self.orient_ax.set_facecolor("#0f0f1a")
-        for axis in (self.orient_ax.xaxis, self.orient_ax.yaxis,
-                     self.orient_ax.zaxis):
-            axis.set_pane_color((0.06, 0.06, 0.10, 1.0))
-            axis.line.set_color("#333333")
-        self.orient_ax.tick_params(colors="#666666", labelsize=7)
-        self.orient_ax.set_xlim(-2.5, 2.5)
-        self.orient_ax.set_ylim(-2.5, 2.5)
-        self.orient_ax.set_zlim(-2.5, 2.5)
-        self.orient_ax.set_xlabel("X (E)", color="#888888", fontsize=8)
-        self.orient_ax.set_ylabel("Y (N)", color="#888888", fontsize=8)
-        self.orient_ax.set_zlabel("Z (up)", color="#888888", fontsize=8)
-
-        # Placeholder line artists that we'll update each frame
-        self._orient_body_line, = self.orient_ax.plot(
-            [], [], [], color="#00ff88", lw=3)
-        self._orient_nose_line, = self.orient_ax.plot(
-            [], [], [], color="#ff4444", lw=2)
-        self._orient_fin_lines = [
-            self.orient_ax.plot([], [], [], color="#88aaff", lw=1.5)[0]
-            for _ in range(3)
-        ]
-        self._orient_shadow, = self.orient_ax.plot(
-            [], [], [], color="#444488", lw=1, alpha=0.5)
-
-        # Vertical reference
-        self.orient_ax.plot([0, 0], [0, 0], [-2.2, 2.2],
-                            color="#333344", lw=0.8, ls=":")
-
-        self.orient_canvas = FigureCanvasTkAgg(self.orient_fig, master=body)
-        self.orient_canvas.get_tk_widget().pack(
-            side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-        # Numeric readouts on the right
-        side = tk.Frame(body, bg="#16213e", width=220)
-        side.pack(side=tk.RIGHT, fill=tk.Y, padx=(8, 0))
-        side.pack_propagate(False)
-
-        def _row(label):
-            tk.Label(side, text=label, bg="#16213e", fg="#aaaaaa",
-                     font=("Consolas", 10)).pack(anchor="w", padx=10,
-                                                  pady=(10, 0))
-            v = tk.Label(side, text="--", bg="#16213e", fg="#00ff88",
-                         font=("Consolas", 20, "bold"))
-            v.pack(anchor="w", padx=10)
-            return v
-
-        self.orient_pitch_lbl = _row("Pitch (deg)")
-        self.orient_roll_lbl  = _row("Roll (deg)")
-        self.orient_yaw_lbl   = _row("Yaw (deg)")
-        self.orient_tilt_lbl  = _row("Tilt from vertical")
-
-        tk.Label(side,
-                 text=("Green = body axis\nRed = nose\nBlue = fins\n"
-                       "Gray dotted = true vertical"),
-                 bg="#16213e", fg="#888888", justify=tk.LEFT,
-                 font=("Consolas", 9)).pack(anchor="w", padx=10, pady=(20, 10))
-
-    def _rotation_matrix(self, pitch_deg: float, roll_deg: float,
-                         yaw_deg: float):
-        p = math.radians(pitch_deg)
-        r = math.radians(roll_deg)
-        y = math.radians(yaw_deg)
-        cp, sp = math.cos(p), math.sin(p)
-        cr, sr = math.cos(r), math.sin(r)
-        cy, sy = math.cos(y), math.sin(y)
-        # Rz(yaw) @ Ry(pitch) @ Rx(roll)
-        def mul(a, b):
-            return [[sum(a[i][k] * b[k][j] for k in range(3))
-                     for j in range(3)] for i in range(3)]
-        Rx = [[1, 0, 0], [0, cr, -sr], [0, sr, cr]]
-        Ry = [[cp, 0, sp], [0, 1, 0], [-sp, 0, cp]]
-        Rz = [[cy, -sy, 0], [sy, cy, 0], [0, 0, 1]]
-        return mul(Rz, mul(Ry, Rx))
-
-    def _apply_rot(self, R, pts):
-        xs, ys, zs = [], [], []
-        for (x, y, z) in pts:
-            xs.append(R[0][0]*x + R[0][1]*y + R[0][2]*z)
-            ys.append(R[1][0]*x + R[1][1]*y + R[1][2]*z)
-            zs.append(R[2][0]*x + R[2][1]*y + R[2][2]*z)
-        return xs, ys, zs
-
-    def _update_orientation_view(self):
-        if not hasattr(self, "orient_ax"):
-            return
-        pitch, roll, yaw = (self.orientation.pitch,
-                             self.orientation.roll,
-                             self.orientation.yaw)
-        R = self._rotation_matrix(pitch, roll, yaw)
-
-        # Body axis (tail to nose) along local +Z
-        body_local = [(0, 0, -1.5), (0, 0, 1.5)]
-        body_x, body_y, body_z = self._apply_rot(R, body_local)
-        self._orient_body_line.set_data(body_x, body_y)
-        self._orient_body_line.set_3d_properties(body_z)
-
-        # Nose cap (tip to base ring center direction)
-        nose_local = [(0, 0, 1.5), (0, 0, 2.0)]
-        nx, ny, nz = self._apply_rot(R, nose_local)
-        self._orient_nose_line.set_data(nx, ny)
-        self._orient_nose_line.set_3d_properties(nz)
-
-        # Three fins at tail, 120 deg apart
-        for i, line in enumerate(self._orient_fin_lines):
-            theta = math.radians(i * 120)
-            fx = 0.5 * math.cos(theta)
-            fy = 0.5 * math.sin(theta)
-            fin_local = [(0, 0, -1.5), (fx, fy, -1.5)]
-            fxs, fys, fzs = self._apply_rot(R, fin_local)
-            line.set_data(fxs, fys)
-            line.set_3d_properties(fzs)
-
-        # Ground shadow (project body line to z=-2.2)
-        shadow_x = [body_x[0], body_x[1]]
-        shadow_y = [body_y[0], body_y[1]]
-        shadow_z = [-2.2, -2.2]
-        self._orient_shadow.set_data(shadow_x, shadow_y)
-        self._orient_shadow.set_3d_properties(shadow_z)
-
-        tilt = self.orientation.tilt_from_vertical()
-        tilt_color = ("#00ff88" if tilt < 15
-                      else "#ff8800" if tilt < 45
-                      else "#ff4444")
-        self.orient_pitch_lbl.configure(text=f"{pitch:+7.1f}")
-        self.orient_roll_lbl.configure(text=f"{roll:+7.1f}")
-        self.orient_yaw_lbl.configure(text=f"{yaw:7.1f}")
-        self.orient_tilt_lbl.configure(text=f"{tilt:5.1f}", fg=tilt_color)
-
-        self.orient_canvas.draw_idle()
-
-    def _zero_orientation(self):
-        self.orientation.reset()
-        self.events.add(SEV_INFO, "ui", "Orientation zeroed")
-        self._update_orientation_view()
 
     # ── Preflight tab ────────────────────────────────────────────
     def _build_preflight_tab(self, parent):
@@ -1094,7 +881,7 @@ class GroundStationApp:
 
         info = ttk.Label(
             parent,
-            text="ARM is disabled until all REQUIRED checks pass.",
+            text="ARM is disabled until all REQUIRED checks pass. Click any item to bypass it.",
             style="Status.TLabel")
         info.pack(anchor=tk.W, padx=8, pady=(0, 8))
 
@@ -1123,13 +910,11 @@ class GroundStationApp:
                      font=("Consolas", 11), anchor="w").pack(
                 side=tk.LEFT, padx=8, fill=tk.X, expand=True)
 
-            btn = None
-            if item["manual"]:
-                btn = tk.Button(
-                    row, text="Mark OK", bg="#2196F3", fg="white",
-                    font=("Consolas", 9, "bold"), relief=tk.RAISED, bd=1,
-                    command=lambda k=key: self._toggle_manual_check(k))
-                btn.pack(side=tk.RIGHT, padx=8)
+            btn = tk.Button(
+                row, text="Mark OK", bg="#2196F3", fg="white",
+                font=("Consolas", 9, "bold"), relief=tk.RAISED, bd=1,
+                command=lambda k=key: self._toggle_manual_check(k))
+            btn.pack(side=tk.RIGHT, padx=8)
 
             self._check_rows[key] = (st_lbl, btn)
 
@@ -1480,9 +1265,7 @@ class GroundStationApp:
         self.peak_alt = 0.0; self.peak_accel = 0.0; self.peak_vel = 0.0
         self.reader.packet_count = 0
 
-        # Reset subsystems (sim restarts profile from t=0, orientation re-zeros)
         self.sim_source.reset()
-        self.orientation.reset()
         self.fault_detector.reset()
         self._launch_ts = None
         self._landed_ts = None
@@ -1800,7 +1583,6 @@ class GroundStationApp:
             self._record_telemetry(t, ts)
             self._check_alerts(t)
             self.fault_detector.check(t)
-            self.orientation.update(t)
 
             # Structured events on state transitions
             if (self.last_telem and t.packet_type == "F"
@@ -1891,7 +1673,6 @@ class GroundStationApp:
             self._redraw_graphs()
             self._update_apogee_marker()
             self.canvas.draw_idle()
-            self._update_orientation_view()
 
         self.root.after(50, self._tick)
 
