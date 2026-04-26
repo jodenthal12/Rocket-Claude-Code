@@ -47,8 +47,8 @@ void setup() {
 void loop() {
   // --- Receive telemetry from flight computer ---
   if (rf95.available()) {
-    uint8_t buf[200];
-    uint8_t len = sizeof(buf) - 1;
+    uint8_t buf[128];
+    uint8_t len = sizeof(buf);
 
     if (rf95.recv(buf, &len) && len > 0) {
       buf[len] = '\0';
