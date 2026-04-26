@@ -617,6 +617,7 @@ class GroundStationApp:
         self._last_sim_ts = 0.0
 
         self._filtered_count = 0  # packets dropped by signal-quality gate
+        self._dropped_total = 0   # cumulative packets dropped (gap detection)
         self.events.add(SEV_INFO, "system", "Ground station started")
 
         self._build_ui()
@@ -888,6 +889,16 @@ class GroundStationApp:
             text="ARM is disabled until all REQUIRED checks pass. Click any item to bypass it.",
             style="Status.TLabel")
         info.pack(anchor=tk.W, padx=8, pady=(0, 8))
+
+        # Bulk action bar
+        bulk = tk.Frame(parent, bg="#1a1a2e")
+        bulk.pack(fill=tk.X, padx=8, pady=(0, 6))
+        tk.Button(bulk, text="BYPASS ALL", bg="#aa6600", fg="white",
+                  font=("Consolas", 10, "bold"), relief=tk.RAISED, bd=2,
+                  command=self._bypass_all).pack(side=tk.LEFT, padx=4)
+        tk.Button(bulk, text="CLEAR ALL", bg="#444444", fg="white",
+                  font=("Consolas", 10, "bold"), relief=tk.RAISED, bd=2,
+                  command=self._clear_all_bypass).pack(side=tk.LEFT, padx=4)
 
         # Scrollable list of checks
         list_frame = tk.Frame(parent, bg="#1a1a2e")
@@ -1268,6 +1279,8 @@ class GroundStationApp:
         self._current_mode = None; self._prev_state = None
         self.peak_alt = 0.0; self.peak_accel = 0.0; self.peak_vel = 0.0
         self.reader.packet_count = 0
+        self._dropped_total = 0
+        self._filtered_count = 0
 
         self.sim_source.reset()
         self.fault_detector.reset()
@@ -1614,6 +1627,7 @@ class GroundStationApp:
             self.last_telem = t
 
         if dropped_this_tick > 0:
+            self._dropped_total += dropped_this_tick
             self.events.add(SEV_WARN, "radio",
                             f"{dropped_this_tick} packet(s) dropped")
 
@@ -1901,6 +1915,19 @@ class GroundStationApp:
         self.preflight.set_manual(key, new)
         self.events.add(SEV_INFO, "preflight",
                         f"{key}: {'BYPASSED' if new else 'cleared'}")
+        self._refresh_preflight()
+
+    def _bypass_all(self):
+        for key in self.preflight.items.keys():
+            self.preflight.set_manual(key, True)
+        self.events.add(SEV_WARN, "preflight", "ALL checks bypassed manually")
+        self._refresh_preflight()
+
+    def _clear_all_bypass(self):
+        for key in self.preflight.items.keys():
+            self.preflight.set_manual(key, False)
+        self.events.add(SEV_INFO, "preflight", "All bypasses cleared")
+        self._refresh_preflight()
 
     def _refresh_preflight(self):
         for key, (st_lbl, btn) in self._check_rows.items():
@@ -1908,7 +1935,7 @@ class GroundStationApp:
             bypassed = item.get("bypassed", False)
             status = item["status"]
             if bypassed:
-                st_lbl.configure(text=" ⊘ ", fg="#ffaa00")
+                st_lbl.configure(text=" ✓ ", fg="#ffaa00")
                 if btn:
                     btn.configure(bg="#aa6600", text=" Clear ")
             elif status is True:
@@ -2081,7 +2108,7 @@ class GroundStationApp:
         rssi = t.rssi if t else "--"
         self.diag_stats.configure(
             text=f"Packets: {self.reader.packet_count}  |  "
-                 f"Dropped: {dropped}  |  "
+                 f"Dropped: {self._dropped_total}  |  "
                  f"Filtered: {self._filtered_count}  |  "
                  f"Last age: {age:.2f}s  |  "
                  f"RSSI: {rssi} dBm")
