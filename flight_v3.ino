@@ -146,7 +146,7 @@ enum FlightState {
 // so we poll the pin and call handleInterrupt() manually.
 class PollableRF95 : public RH_RF95 {
 public:
-  PollableRF95(uint8_t cs, uint8_t irq) : RH_RF95(cs, irq), _dio0(irq) {}
+  PollableRF95(uint8_t cs, uint8_t irq) : RH_RF95(cs, 0xFF), _dio0(irq) {}
   void poll() {
     if (digitalRead(_dio0)) handleInterrupt();
   }
