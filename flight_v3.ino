@@ -578,11 +578,13 @@ void loop() {
   float vel_est = kf.initialized ? kf.vel : 0.0f;
 
   // --- Arm switch edge detection ---
-  if (state == ST_READY && !prev_arm_sw && arm_sw) {
-    state = ST_ARMED;
-    Serial.println(">> ARMED");
-    beep(1500, 60); beep(1500, 60); beep(1500, 60);
-    // LEDs handled continuously by update_status_leds()
+  // Switch is an ENABLE only. CMD,ARM is required to actually arm.
+  // If switch goes OFF while ARMED, force back to READY (safety).
+  if (state == ST_ARMED && prev_arm_sw && !arm_sw) {
+    state = ST_READY;
+    pyro_safe();
+    Serial.println(">> SWITCH OFF -- disarmed");
+    beep(800, 200);
   }
   prev_arm_sw = arm_sw;
 
