@@ -19,6 +19,7 @@ public:
   void poll() {
     if (digitalRead(_dio0)) handleInterrupt();
   }
+  void forceHandle() { handleInterrupt(); }   // public wrapper
 private:
   uint8_t _dio0;
 };
@@ -58,7 +59,7 @@ void loop() {
   if (irq != 0) {
     Serial.print("IRQ flags = 0x");
     Serial.println(irq, HEX);
-    rf95.handleInterrupt();           // process whatever fired
+    rf95.forceHandle();               // process whatever fired
   }
 
   if (rf95.available()) {
