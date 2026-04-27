@@ -139,14 +139,15 @@ enum FlightState {
   ST_IDLE, ST_READY, ST_ARMED, ST_BOOST, ST_COAST, ST_DESCENT, ST_LANDED, ST_FAULT
 };
 
-// Subclass to expose the protected handleInterrupt() for DIO0 polling.
-// DIO0 on Teensy 4.1 pin 1 shares Serial1 TX — hardware interrupts never fire,
-// so we poll the pin and call handleInterrupt() manually.
+// Subclass to expose the protected handleInterrupt() for IRQ polling.
+// DIO0 on Teensy 4.1 pin 1 shares Serial1 TX — both the hardware interrupt
+// AND digitalRead() are unreliable, so we poll REG_IRQ_FLAGS over SPI
+// and dispatch handleInterrupt() ourselves.
 class PollableRF95 : public RH_RF95 {
 public:
   PollableRF95(uint8_t cs, uint8_t irq) : RH_RF95(cs, 0xFF), _dio0(irq) {}
   void poll() {
-    if (digitalRead(_dio0)) handleInterrupt();
+    if (spiRead(0x12) != 0) handleInterrupt();   // REG_IRQ_FLAGS
   }
 private:
   uint8_t _dio0;
@@ -429,14 +430,12 @@ bool preflight() {
   pinMode(PIN_LORA_RST, OUTPUT);
   digitalWrite(PIN_LORA_RST, LOW);  delay(10);
   digitalWrite(PIN_LORA_RST, HIGH); delay(10);
+  pinMode(PIN_LORA_G0, INPUT);  // RadioHead skips this when irq=0xFF
   bool loraOk = rf95.init();
   if (loraOk) {
     rf95.setFrequency(915.0);
     rf95.setTxPower(13, false);
-    // DIO0 on pin 1 shares the Teensy 4.1 Serial1 TX pad — the hardware
-    // interrupt never fires.  Detach RadioHead's broken ISR and poll
-    // DIO0 manually in loop() instead.
-    detachInterrupt(digitalPinToInterrupt(PIN_LORA_G0));
+    rf95.setModeRx();  // start listening immediately
   }
   ok &= check("RFM95W init", loraOk);
 
@@ -774,7 +773,9 @@ void loop() {
   if (rf95.available()) {
     uint8_t rxbuf[32];
     uint8_t rxlen = sizeof(rxbuf);
-    if (rf95.recv(rxbuf, &rxlen) && rxlen > 0) {
+    bool ok = rf95.recv(rxbuf, &rxlen);
+    Serial.printf(">> LoRa RX: ok=%d len=%d rssi=%d\n", (int)ok, (int)rxlen, (int)rf95.lastRssi());
+    if (ok && rxlen > 0) {
       rxbuf[rxlen] = '\0';
       process_command((char*)rxbuf);
     }
