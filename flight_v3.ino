@@ -148,7 +148,7 @@ class PollableRF95 : public RH_RF95 {
 public:
   PollableRF95(uint8_t cs, uint8_t irq) : RH_RF95(cs, 0xFF), _dio0(irq) {}
   void poll() {
-    if (digitalRead(_dio0)) handleInterrupt();
+    if (spiRead(0x12) != 0) handleInterrupt();   // REG_IRQ_FLAGS
   }
 private:
   uint8_t _dio0;
