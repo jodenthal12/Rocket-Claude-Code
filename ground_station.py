@@ -114,6 +114,7 @@ class Telemetry:
         "rssi", "snr", "remote_safe", "packet_type",
         "ax", "ay", "az", "gx", "gy", "gz",
         "temp_c", "pres_hpa", "vbat", "cont1", "cont2", "arm",
+        "sd_ok", "arm_sw",
     )
 
     def __init__(self):
