@@ -51,6 +51,16 @@ void loop() {
   // Manually poll DIO0
   rf95.poll();
 
+  // ALSO poll the IRQ flag register over SPI directly — bypasses DIO0
+  // entirely.  If a packet is received and DIO0 doesn't fire, we'll
+  // catch it here.
+  uint8_t irq = rf95.spiRead(0x12);   // REG_IRQ_FLAGS
+  if (irq != 0) {
+    Serial.print("IRQ flags = 0x");
+    Serial.println(irq, HEX);
+    rf95.handleInterrupt();           // process whatever fired
+  }
+
   if (rf95.available()) {
     uint8_t buf[64];
     uint8_t len = sizeof(buf) - 1;
@@ -79,9 +89,18 @@ void loop() {
   uint32_t now = millis();
   if (now - last_hb >= 2000) {
     last_hb = now;
+    uint8_t op    = rf95.spiRead(0x01);   // REG_OP_MODE
+    uint8_t flags = rf95.spiRead(0x12);   // REG_IRQ_FLAGS
+    uint8_t rssi  = rf95.spiRead(0x1A);   // REG_RSSI_VALUE  (-157 + raw)
     Serial.print("alive  dio0=");
     Serial.print(digitalRead(PIN_LORA_G0));
     Serial.print("  mode=");
-    Serial.println(rf95.mode());
+    Serial.print(rf95.mode());
+    Serial.print("  op=0x");
+    Serial.print(op, HEX);
+    Serial.print("  flags=0x");
+    Serial.print(flags, HEX);
+    Serial.print("  rssi=");
+    Serial.println((int)rssi - 157);
   }
 }
