@@ -371,8 +371,16 @@ void update_status_leds(uint32_t now) {
   if (now - last_ms < 100) return;
   last_ms = now;
 
-  bool armed = (digitalRead(PIN_ARM_SW) == HIGH) && !remote_safe;
-  leds.setPixelColor(LED_ARM, armed ? 0x002000 : 0x200000);  // GREEN=armed, RED=safe
+  bool sw_on      = (digitalRead(PIN_ARM_SW) == HIGH);
+  bool fully_armed = (state == ST_ARMED);
+  if (fully_armed) {
+    leds.setPixelColor(LED_ARM, 0x002000);                          // solid GREEN: fully armed
+  } else if (sw_on && !remote_safe) {
+    uint32_t c = ((now / 500) % 2 == 0) ? 0x002000 : 0x000000;    // flash GREEN: switch only
+    leds.setPixelColor(LED_ARM, c);
+  } else {
+    leds.setPixelColor(LED_ARM, 0x200000);                          // RED: safe
+  }
 
   if (!pyro_active) {
     int c1 = analogRead(PIN_CONT1);
