@@ -382,7 +382,10 @@ void update_status_leds(uint32_t now) {
     leds.setPixelColor(LED_ARM, 0x200000);                          // RED: safe
   }
 
-  if (!pyro_active) {
+  if (remote_safe) {
+    leds.setPixelColor(LED_P1, 0x200020);  // purple: remotely safed
+    leds.setPixelColor(LED_P2, 0x200020);
+  } else if (!pyro_active) {
     int c1 = analogRead(PIN_CONT1);
     int c2 = analogRead(PIN_CONT2);
     bool c1_ok = (c1 > CONT_MIN_RAW && c1 < CONT_MAX_RAW);
