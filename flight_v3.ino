@@ -534,6 +534,95 @@ void setup() {
 // ---------- Loop (100 Hz) ----------
 uint32_t last_tick = 0;
 
+// Process a command string (from LoRa or USB serial)
+void process_command(const char* cmd) {
+  Serial.printf("RX CMD: %s\n", cmd);
+  if (strncmp(cmd, "CMD,SAFE", 8) == 0) {
+    remote_safe = true;
+    pyro_safe();
+    pyro_fired = false;
+    Serial.println(">> REMOTE SAFE — pyros disabled");
+    beep(800, 200);
+    if (state == ST_ARMED) {
+      state = ST_READY;
+      Serial.println(">> DISARMED (remote)");
+    } else if (state == ST_COAST) {
+      state = ST_DESCENT;
+      Serial.println(">> COAST->DESCENT (remote safe, no pyro fire)");
+    }
+  }
+  if (strncmp(cmd, "CMD,PING", 8) == 0) {
+    rf95.setModeIdle();
+    const char* pong = "PONG";
+    rf95.send((uint8_t*)pong, 4);
+    Serial.println(">> PING — PONG sent");
+    beep(2000, 50);
+  }
+  if (strncmp(cmd, "CMD,BUZZ", 8) == 0) {
+    beep(1000, 80); beep(2000, 80); beep(3000, 120);
+    Serial.println(">> Buzzer test");
+  }
+  if (strncmp(cmd, "CMD,LED", 7) == 0) {
+    for (int i = 0; i < 3; i++) {
+      leds.fill(0x202020); leds.show(); delay(100);
+      leds.fill(0);        leds.show(); delay(100);
+    }
+    Serial.println(">> LED test");
+  }
+  if (strncmp(cmd, "CMD,ZEROALT", 11) == 0) {
+    double sum = 0; int cnt = 0;
+    for (int i = 0; i < 10; i++) {
+      if (bmp.performReading()) { sum += pressure_to_alt(bmp.pressure); cnt++; }
+      delay(50);
+    }
+    if (cnt > 0) {
+      ground_alt = sum / cnt;
+      kf.init(0.0f);
+      Serial.printf(">> Zero alt: ground=%.2f m\n", ground_alt);
+      beep(2000, 60); beep(2500, 60);
+    }
+  }
+  if (strncmp(cmd, "CMD,CALPRES", 11) == 0) {
+    double sum = 0; int cnt = 0;
+    for (int i = 0; i < 20; i++) {
+      if (bmp.performReading()) { sum += bmp.pressure; cnt++; }
+      delay(50);
+    }
+    if (cnt > 0) {
+      ground_alt = pressure_to_alt(sum / cnt);
+      kf.init(0.0f);
+      Serial.printf(">> Cal pres: ground=%.2f m\n", ground_alt);
+      beep(2000, 60); beep(2500, 60);
+    }
+  }
+  if (strncmp(cmd, "CMD,ARM", 7) == 0) {
+    if (state == ST_READY || state == ST_LANDED || state == ST_DESCENT) {
+      remote_safe = false;
+      pyro_fired = false;
+      pyro_active = false;
+      launch_streak = 0;
+      burnout_streak = 0;
+      apogee_streak = 0;
+      t_launch = 0;
+      t_coast = 0;
+      t_landed_start = 0;
+      max_alt = 0.0f;
+      kf.init(0.0f);
+      if (digitalRead(PIN_ARM_SW) == HIGH) {
+        state = ST_ARMED;
+        Serial.println(">> REMOTE ARM — armed (switch is ON)");
+        beep(1500, 60); beep(1500, 60); beep(1500, 60);
+      } else {
+        state = ST_READY;
+        Serial.println(">> SAFE CLEARED — flip arm switch to arm");
+        beep(1500, 60); beep(2000, 60);
+      }
+    } else {
+      Serial.printf(">> REMOTE ARM REJECTED (state=%d)\n", (int)state);
+    }
+  }
+}
+
 void loop() {
   // Poll DIO0 — replaces the broken hardware interrupt on pin 1
   rf95.poll();
@@ -702,97 +791,23 @@ void loop() {
     uint8_t rxlen = sizeof(rxbuf);
     if (rf95.recv(rxbuf, &rxlen) && rxlen > 0) {
       rxbuf[rxlen] = '\0';
-      Serial.printf("RX CMD: %s\n", (char*)rxbuf);
-      if (strncmp((char*)rxbuf, "CMD,SAFE", 8) == 0) {
-        remote_safe = true;
-        pyro_safe();
-        pyro_fired = false;
-        Serial.println(">> REMOTE SAFE — pyros disabled");
-        beep(800, 200);
-        if (state == ST_ARMED) {
-          state = ST_READY;
-          Serial.println(">> DISARMED (remote)");
-        } else if (state == ST_COAST) {
-          state = ST_DESCENT;
-          Serial.println(">> COAST->DESCENT (remote safe, no pyro fire)");
-        }
-        led(LED_P1, 0x200020);  // purple = remotely safed
-        led(LED_P2, 0x200020);
+      process_command((char*)rxbuf);
+    }
+  }
+
+  // --- USB serial command fallback (for debugging when LoRa RX is broken) ---
+  static char usbbuf[32];
+  static uint8_t usblen = 0;
+  while (Serial.available()) {
+    char c = Serial.read();
+    if (c == '\n' || c == '\r') {
+      if (usblen > 0) {
+        usbbuf[usblen] = '\0';
+        process_command(usbbuf);
+        usblen = 0;
       }
-      if (strncmp((char*)rxbuf, "CMD,PING", 8) == 0) {
-        rf95.setModeIdle();
-        const char* pong = "PONG";
-        rf95.send((uint8_t*)pong, 4);
-        Serial.println(">> PING — PONG sent");
-        beep(2000, 50);
-      }
-      if (strncmp((char*)rxbuf, "CMD,BUZZ", 8) == 0) {
-        beep(1000, 80); beep(2000, 80); beep(3000, 120);
-        Serial.println(">> Buzzer test");
-      }
-      if (strncmp((char*)rxbuf, "CMD,LED", 7) == 0) {
-        for (int i = 0; i < 3; i++) {
-          leds.fill(0x202020); leds.show(); delay(100);
-          leds.fill(0);        leds.show(); delay(100);
-        }
-        Serial.println(">> LED test");
-      }
-      if (strncmp((char*)rxbuf, "CMD,ZEROALT", 11) == 0) {
-        double sum = 0; int cnt = 0;
-        for (int i = 0; i < 10; i++) {
-          if (bmp.performReading()) { sum += pressure_to_alt(bmp.pressure); cnt++; }
-          delay(50);
-        }
-        if (cnt > 0) {
-          ground_alt = sum / cnt;
-          kf.init(0.0f);
-          Serial.printf(">> Zero alt: ground=%.2f m\n", ground_alt);
-          beep(2000, 60); beep(2500, 60);
-        }
-      }
-      if (strncmp((char*)rxbuf, "CMD,CALPRES", 11) == 0) {
-        // Re-sample ground pressure average over 1 s
-        double sum = 0; int cnt = 0;
-        for (int i = 0; i < 20; i++) {
-          if (bmp.performReading()) { sum += bmp.pressure; cnt++; }
-          delay(50);
-        }
-        if (cnt > 0) {
-          ground_alt = pressure_to_alt(sum / cnt);
-          kf.init(0.0f);
-          Serial.printf(">> Cal pres: ground=%.2f m\n", ground_alt);
-          beep(2000, 60); beep(2500, 60);
-        }
-      }
-      if (strncmp((char*)rxbuf, "CMD,ARM", 7) == 0) {
-        if (state == ST_READY || state == ST_LANDED || state == ST_DESCENT) {
-          remote_safe = false;
-          pyro_fired = false;
-          pyro_active = false;
-          launch_streak = 0;
-          burnout_streak = 0;
-          apogee_streak = 0;
-          t_launch = 0;
-          t_coast = 0;
-          t_landed_start = 0;
-          max_alt = 0.0f;
-          kf.init(0.0f);
-          // Only go to ARMED if arm switch is on; otherwise clear safe and stay READY
-          if (digitalRead(PIN_ARM_SW) == HIGH) {
-            state = ST_ARMED;
-            Serial.println(">> REMOTE ARM — armed (switch is ON)");
-            beep(1500, 60); beep(1500, 60); beep(1500, 60);
-            led(LED_ARM, 0x200000);
-          } else {
-            state = ST_READY;
-            Serial.println(">> SAFE CLEARED — flip arm switch to arm");
-            beep(1500, 60); beep(2000, 60);
-          }
-          led(LED_P1, 0); led(LED_P2, 0);
-        } else {
-          Serial.printf(">> REMOTE ARM REJECTED (state=%d)\n", (int)state);
-        }
-      }
+    } else if (usblen < sizeof(usbbuf) - 1) {
+      usbbuf[usblen++] = c;
     }
   }
 
