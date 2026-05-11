@@ -818,7 +818,7 @@ void loop() {
   if (now - last_tx >= tx_interval && state >= ST_READY) {
     // Only send if previous packet has finished — LoRa ToA ~128ms.
     // setModeIdle() would abort an in-progress TX and lose the packet.
-    if (rf95.mode() != RHModeTx) {
+    if (rf95.mode() != RHGenericDriver::RHModeTx) {
       last_tx = now;
       char buf[180];
       int n = snprintf(buf, sizeof(buf),
