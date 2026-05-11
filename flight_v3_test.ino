@@ -798,27 +798,28 @@ void loop() {
   }
 
   // --- Telemetry ---
-  // BUG FIX: fast rate (100ms) during flight, slow (1000ms) on ground
   static uint32_t last_tx = 0;
   bool critical = (state == ST_BOOST || state == ST_COAST || state == ST_DESCENT);
-  uint32_t tx_interval = critical ? 100 : 1000;
+  uint32_t tx_interval = critical ? 250 : 1000;
   if (now - last_tx >= tx_interval && state >= ST_READY) {
-    last_tx = now;
-    char buf[180];
-    int n = snprintf(buf, sizeof(buf),
-                     "F,%lu,%d,%.1f,%.1f,%.2f,%.1f,%d,%d,%.1f,%d,%d,%.1f,%.1f,%.1f,%.1f,%d,%d",
-                     now, (int)state,
-                     isnan(alt_agl) ? 0.0f : alt_agl, max_alt,
-                     accel_g, vel_est, pyro_fired, remote_safe,
-                     read_vbat(),
-                     analogRead(PIN_CONT1), analogRead(PIN_CONT2),
-                     bmp.temperature,
-                     gx_dps, gy_dps, gz_dps,
-                     (int)sd_ok, (int)(digitalRead(PIN_ARM_SW) == HIGH));
-    rf95.setModeIdle();          // ensure radio is idle before TX
-    rf95.send((uint8_t*)buf, n);  // starts TX — do NOT call waitPacketSent()
-    // waitPacketSent() would deadlock because poll() can't run while blocked
-    Serial.println(buf);
+    // Only send if previous packet has finished — LoRa ToA ~128ms.
+    // setModeIdle() would abort an in-progress TX and lose the packet.
+    if (rf95.mode() != RHGenericDriver::RHModeTx) {
+      last_tx = now;
+      char buf[180];
+      int n = snprintf(buf, sizeof(buf),
+                       "F,%lu,%d,%.1f,%.1f,%.2f,%.1f,%d,%d,%.1f,%d,%d,%.1f,%.1f,%.1f,%.1f,%d,%d",
+                       now, (int)state,
+                       isnan(alt_agl) ? 0.0f : alt_agl, max_alt,
+                       accel_g, vel_est, pyro_fired, remote_safe,
+                       read_vbat(),
+                       analogRead(PIN_CONT1), analogRead(PIN_CONT2),
+                       bmp.temperature,
+                       gx_dps, gy_dps, gz_dps,
+                       (int)sd_ok, (int)(digitalRead(PIN_ARM_SW) == HIGH));
+      rf95.send((uint8_t*)buf, n);  // do NOT call waitPacketSent() — deadlock
+      Serial.println(buf);
+    }
   }
 
   // --- Log to SD card every tick (100 Hz) ---
