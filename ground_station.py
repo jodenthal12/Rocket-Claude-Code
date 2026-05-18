@@ -797,6 +797,8 @@ class GroundStationApp:
 
         self.btn_safe = _mkbtn(btn_frame, "SAFE PYROS", "#cc0000", self._send_safe)
         self.btn_safe.pack(side=tk.LEFT, padx=3)
+        self.btn_unsafe = _mkbtn(btn_frame, "UNSAFE PYROS", "#cc6600", self._send_unsafe)
+        self.btn_unsafe.pack(side=tk.LEFT, padx=3)
         self.btn_arm = _mkbtn(btn_frame, "RE-ARM", "#555555", self._send_arm)
         self.btn_arm.pack(side=tk.LEFT, padx=3)
         self.btn_reset = _mkbtn(btn_frame, "RESET", "#2196F3", self._reset_display)
@@ -1245,6 +1247,16 @@ class GroundStationApp:
             # Send 3x for reliability
             self.root.after(200, lambda: self.reader.send_command("CMD,SAFE"))
             self.root.after(400, lambda: self.reader.send_command("CMD,SAFE"))
+
+    def _send_unsafe(self):
+        if not self.reader.connected:
+            self.safe_status.configure(text="NOT CONNECTED", foreground="#ff4444")
+            return
+        if self.reader.send_command("CMD,UNSAFE"):
+            self.safe_status.configure(text="UNSAFE SENT", foreground="#88cc00")
+            self.btn_safe.configure(bg="#cc0000", text="SAFE PYROS")
+            self.root.after(200, lambda: self.reader.send_command("CMD,UNSAFE"))
+            self.root.after(400, lambda: self.reader.send_command("CMD,UNSAFE"))
 
     def _update_arm_button(self):
         """Reflect armed state on btn_arm:

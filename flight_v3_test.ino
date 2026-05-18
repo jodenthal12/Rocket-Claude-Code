@@ -535,6 +535,11 @@ void process_command(const char* cmd) {
       Serial.println(">> COAST->DESCENT (remote safe, no pyro fire)");
     }
   }
+  if (strncmp(cmd, "CMD,UNSAFE", 10) == 0) {
+    remote_safe = false;
+    Serial.println(">> REMOTE UNSAFE — pyros re-enabled");
+    beep(1500, 60); beep(2000, 60);
+  }
   if (strncmp(cmd, "CMD,RESET", 9) == 0) {
     Serial.println(">> RESET — re-running preflight");
     pyro_safe();
@@ -699,6 +704,7 @@ void loop() {
       }
       if (accel_g > LAUNCH_ACCEL_G) {
         if (++launch_streak >= LAUNCH_SAMPLES) {
+          remote_safe = false;  // clear safe mode on confirmed launch
           state = ST_BOOST;
           t_launch = now;
           max_alt = isnan(alt_agl) ? 0.0f : alt_agl;
