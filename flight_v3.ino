@@ -610,7 +610,7 @@ void process_command(const char* cmd) {
     }
   }
   if (strncmp(cmd, "CMD,ARM", 7) == 0) {
-    if (state == ST_READY || state == ST_LANDED || state == ST_DESCENT) {
+    if (state == ST_READY || state == ST_LANDED || state == ST_DESCENT || state == ST_FAULT) {
       remote_safe = false;
       pyro_fired = false;
       pyro_active = false;
