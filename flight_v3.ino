@@ -333,22 +333,25 @@ bool start_pyro_fire() {
     Serial.println("FIRE BLOCKED: remote safe active");
     return false;
   }
-  if (!continuity_ok()) {
-    Serial.println("FIRE RETRY: continuity fail");
-    return false;
-  }
   if (digitalRead(PIN_ARM_SW) != HIGH) {
     Serial.println("FIRE RETRY: arm switch off");
+    return false;
+  }
+  int c1 = analogRead(PIN_CONT1);
+  int c2 = analogRead(PIN_CONT2);
+  bool ok1 = (c1 > CONT_MIN_RAW && c1 < CONT_MAX_RAW);
+  bool ok2 = (c2 > CONT_MIN_RAW && c2 < CONT_MAX_RAW);
+  if (!ok1 && !ok2) {
+    Serial.printf("FIRE RETRY: no continuity on either channel (c1=%d c2=%d)\n", c1, c2);
     return false;
   }
   pyro_fired = true;
   pyro_active = true;
   pyro_fire_start = millis();
-  Serial.printf("*** FIRE PYROS @ %lu ms ***\n", pyro_fire_start);
-  led(LED_P1, 0x200000);
-  led(LED_P2, 0x200000);
-  digitalWrite(PIN_PYRO1_FIRE, HIGH);
-  digitalWrite(PIN_PYRO2_FIRE, HIGH);
+  Serial.printf("*** FIRE PYROS @ %lu ms — p1=%s p2=%s ***\n",
+                pyro_fire_start, ok1 ? "FIRE" : "skip(open)", ok2 ? "FIRE" : "skip(open)");
+  if (ok1) { led(LED_P1, 0x200000); digitalWrite(PIN_PYRO1_FIRE, HIGH); }
+  if (ok2) { led(LED_P2, 0x200000); digitalWrite(PIN_PYRO2_FIRE, HIGH); }
   return true;
 }
 
