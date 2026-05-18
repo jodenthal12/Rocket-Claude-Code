@@ -725,27 +725,29 @@ void loop() {
 
     case ST_COAST: {
       if (alt_agl > max_alt) max_alt = alt_agl;
-      // BUG FIX: lockout measured from coast entry, not launch
       bool past_lockout = (now - t_coast) > MIN_COAST_MS;
 
       if (past_lockout && !isnan(alt_agl)
           && alt_agl < (max_alt - APOGEE_DROP_M)) {
         if (++apogee_streak >= APOGEE_SAMPLES) {
           Serial.printf(">> APOGEE (baro) @ %lu ms, max=%.2f m\n", now, max_alt);
-          if (start_pyro_fire()) state = ST_DESCENT;
+          start_pyro_fire();   // attempt — state always advances regardless
+          state = ST_DESCENT;
         }
       } else {
         apogee_streak = 0;
       }
 
-      if (!pyro_fired && (now - t_launch) > APOGEE_BACKUP_MS) {
+      if ((now - t_launch) > APOGEE_BACKUP_MS) {
         Serial.printf(">> APOGEE (timeout) @ %lu ms\n", now);
-        if (start_pyro_fire()) state = ST_DESCENT;
+        start_pyro_fire();     // attempt — state always advances regardless
+        state = ST_DESCENT;
       }
       break;
     }
 
     case ST_DESCENT: {
+      if (!pyro_fired) start_pyro_fire();  // retry every tick until conditions are met
       if (t_landed_start == 0) {
         t_landed_start = now;
         landed_ref_alt = isnan(alt_agl) ? 0.0f : alt_agl;
