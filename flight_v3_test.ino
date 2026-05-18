@@ -535,6 +535,22 @@ void process_command(const char* cmd) {
       Serial.println(">> COAST->DESCENT (remote safe, no pyro fire)");
     }
   }
+  if (strncmp(cmd, "CMD,RESET", 9) == 0) {
+    Serial.println(">> RESET — re-running preflight");
+    pyro_safe();
+    pyro_fired = false;
+    remote_safe = false;
+    bool pass = preflight();
+    if (pass) {
+      state = ST_READY;
+      Serial.println(">> PREFLIGHT PASS — ready");
+      beep(2000, 80); beep(2500, 80); beep(3000, 120);
+    } else {
+      state = ST_FAULT;
+      Serial.println(">> PREFLIGHT FAIL — still in fault");
+      beep(500, 300);
+    }
+  }
   if (strncmp(cmd, "CMD,PING", 8) == 0) {
     rf95.setModeIdle();
     const char* pong = "PONG";
@@ -580,7 +596,7 @@ void process_command(const char* cmd) {
     }
   }
   if (strncmp(cmd, "CMD,ARM", 7) == 0) {
-    if (state == ST_READY || state == ST_LANDED || state == ST_DESCENT) {
+    if (state == ST_READY || state == ST_LANDED || state == ST_DESCENT || state == ST_FAULT) {
       remote_safe = false;
       pyro_fired = false;
       pyro_active = false;
