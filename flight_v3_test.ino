@@ -39,8 +39,8 @@ constexpr uint8_t  APOGEE_SAMPLES    = 4;
 constexpr uint32_t MIN_COAST_MS      = 300;
 constexpr uint32_t APOGEE_BACKUP_MS  = 8000;
 constexpr uint32_t PYRO_FIRE_MS      = 500;
-constexpr uint32_t LANDED_STILL_MS   = 3000;
-constexpr float    LANDED_ALT_BAND   = 0.8f;
+constexpr uint32_t LANDED_STILL_MS   = 2000;
+constexpr float    LANDED_ALT_BAND   = 2.0f;
 constexpr uint32_t FLIGHT_TIMEOUT_MS = 120000;
 constexpr float    VBAT_MIN          = 7.0f;
 constexpr int      CONT_MIN_RAW      = 500;
@@ -754,7 +754,7 @@ void loop() {
       }
       if (!isnan(alt_agl)
           && fabsf(alt_agl - landed_ref_alt) < LANDED_ALT_BAND
-          && fabsf(accel_g - 1.0f) < 0.25f) {
+          && fabsf(accel_g - 1.0f) < 0.5f) {
         if ((now - t_landed_start) > LANDED_STILL_MS) {
           state = ST_LANDED;
           Serial.printf(">> LANDED @ %lu ms\n", now);
