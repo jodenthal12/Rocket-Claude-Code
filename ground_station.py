@@ -446,32 +446,42 @@ class SimulationSource:
         t_s = time.monotonic() - self.t0
         self.seq += 1
 
-        # Profile: 0-3s idle, 3-3.5s boost, 3.5-6s coast to apogee ~40m,
-        # 6-10s descent, 10s+ landed
+        # Realistic water-rocket flight, apogee ~22.7 m:
+        #   0-3.0s    READY    (idle, on pad)
+        #   3.0-3.25s BOOST    (0.25s burn, ~8g, burnout vel 19.9 m/s)
+        #   3.25-5.28s COAST   (decelerate to apogee 22.7m)
+        #   5.28-10.3s DESCENT (parachute, ~4.5 m/s)
+        #   10.3s+    LANDED
+        BURN_VEL = 19.9    # m/s at burnout — gives 22.7m apogee
+        BURN_ALT = 2.49    # m at burnout (0.5 * 0.25 * 19.9)
+        APOGEE_T = 5.28    # time at apogee
+        LANDED_T = 10.30   # time at touchdown
+
         if t_s < 3.0:
             state, alt, vel, acc = 1, 0.0, 0.0, 1.0   # READY
-        elif t_s < 3.5:
-            frac = (t_s - 3.0) / 0.5
+        elif t_s < 3.25:
             state = 3                                   # BOOST
-            acc = 12.0 + random.uniform(-1, 1)
-            vel = frac * 28.0
-            alt = 0.5 * vel * frac * 0.5
-        elif t_s < 6.0:
+            frac = (t_s - 3.0) / 0.25
+            acc = 8.1 + random.uniform(-0.6, 0.6)
+            vel = frac * BURN_VEL
+            alt = 0.5 * (t_s - 3.0) * vel
+        elif t_s < APOGEE_T:
             state = 4                                   # COAST
-            v_apogee_t = 6.0
-            vel = 28.0 - 9.81 * (t_s - 3.5)
-            alt = 28.0 * (t_s - 3.5) - 0.5 * 9.81 * (t_s - 3.5) ** 2 + 7.0
-            acc = 1.0 + random.uniform(-0.2, 0.2)
-        elif t_s < 10.0:
+            dt = t_s - 3.25
+            vel = BURN_VEL - 9.81 * dt
+            alt = BURN_ALT + BURN_VEL * dt - 0.5 * 9.81 * dt ** 2
+            acc = 1.0 + random.uniform(-0.15, 0.15)
+        elif t_s < LANDED_T:
             state = 5                                   # DESCENT
-            vel = -5.0 + random.uniform(-0.5, 0.5)
-            dt = t_s - 6.0
-            alt = max(0.0, 40.0 - 5.0 * dt)
-            acc = 1.0 + random.uniform(-0.3, 0.3)
+            descent_rate = 4.5
+            vel = -descent_rate + random.uniform(-0.3, 0.3)
+            dt = t_s - APOGEE_T
+            alt = max(0.0, 22.7 - descent_rate * dt)
+            acc = 1.0 + random.uniform(-0.25, 0.25)
         else:
             state, alt, vel, acc = 6, 0.0, 0.0, 1.0     # LANDED
 
-        alt += random.uniform(-0.2, 0.2)
+        alt += random.uniform(-0.15, 0.15)
         self.max_alt_seen = max(self.max_alt_seen, alt)
 
         t = Telemetry()
@@ -482,11 +492,11 @@ class SimulationSource:
         t.max_alt = self.max_alt_seen
         t.accel = acc
         t.vel = vel
-        t.pyro = state == 5 and t_s < 6.5
+        t.pyro = state >= 5     # pyro fires at apogee and stays latched
         t.remote_safe = False
-        t.rssi = -60 + random.randint(-5, 5)
-        t.snr = 10.0 + random.uniform(-2, 2)
-        t.vbat = 8.1 + random.uniform(-0.05, 0.05)
+        t.rssi = -62 + random.randint(-4, 4)
+        t.snr = 9.5 + random.uniform(-1.5, 1.5)
+        t.vbat = 8.05 + random.uniform(-0.05, 0.05)
         t.cont1 = 1500
         t.cont2 = 1500
         t.temp_c = 22.0 + random.uniform(-0.5, 0.5)
@@ -494,26 +504,26 @@ class SimulationSource:
 
         # Body-frame accel/gyro for orientation display
         if state == 3:          # BOOST: wobble
-            t.ax = random.uniform(-2, 2)
-            t.ay = random.uniform(-2, 2)
+            t.ax = random.uniform(-1.5, 1.5)
+            t.ay = random.uniform(-1.5, 1.5)
             t.az = 1.0
-            t.gx = random.uniform(-20, 20)
-            t.gy = random.uniform(-20, 20)
-            t.gz = random.uniform(-10, 10)
+            t.gx = random.uniform(-15, 15)
+            t.gy = random.uniform(-15, 15)
+            t.gz = random.uniform(-8, 8)
         elif state == 4:        # COAST: near-zero accel (freefall-ish), slow spin
             t.ax = random.uniform(-0.1, 0.1)
             t.ay = random.uniform(-0.1, 0.1)
             t.az = random.uniform(-0.1, 0.1)
-            t.gx = random.uniform(-5, 5)
-            t.gy = random.uniform(-5, 5)
-            t.gz = 30.0 + random.uniform(-5, 5)
-        elif state == 5:        # DESCENT: tumble
+            t.gx = random.uniform(-4, 4)
+            t.gy = random.uniform(-4, 4)
+            t.gz = 22.0 + random.uniform(-4, 4)
+        elif state == 5:        # DESCENT: tumble under chute
             t.ax = random.uniform(-0.4, 0.4)
             t.ay = random.uniform(-0.4, 0.4)
             t.az = 1.0 + random.uniform(-0.3, 0.3)
-            t.gx = random.uniform(-60, 60)
-            t.gy = random.uniform(-60, 60)
-            t.gz = random.uniform(-40, 40)
+            t.gx = random.uniform(-50, 50)
+            t.gy = random.uniform(-50, 50)
+            t.gz = random.uniform(-30, 30)
         else:                    # IDLE / READY / LANDED: stationary (~1g z)
             t.ax = random.uniform(-0.02, 0.02)
             t.ay = random.uniform(-0.02, 0.02)
