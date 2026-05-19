@@ -16,9 +16,9 @@
 // ---------- Pin map ----------
 constexpr uint8_t PIN_LORA_RST   = 0;
 constexpr uint8_t PIN_LORA_G0    = 1;
-constexpr uint8_t PIN_PYRO1_FIRE = 2;
+constexpr uint8_t PIN_PYRO1_FIRE = 28;  // external D4184 module SIG
 constexpr uint8_t PIN_BUZZER     = 3;
-constexpr uint8_t PIN_PYRO2_FIRE = 5;
+constexpr uint8_t PIN_PYRO2_FIRE = 29;  // external D4184 module SIG
 constexpr uint8_t PIN_CS_GYRO    = 7;
 constexpr uint8_t PIN_CS_ACCEL   = 8;
 constexpr uint8_t PIN_CS_BMP     = 9;
