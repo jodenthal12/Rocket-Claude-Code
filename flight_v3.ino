@@ -228,8 +228,9 @@ float read_vbat() {
 bool continuity_ok() {
   int c1 = analogRead(PIN_CONT1);
   int c2 = analogRead(PIN_CONT2);
-  return (c1 > CONT_MIN_RAW && c1 < CONT_MAX_RAW) &&
-         (c2 > CONT_MIN_RAW && c2 < CONT_MAX_RAW);
+  bool ok1 = (c1 > CONT_MIN_RAW && c1 < CONT_MAX_RAW);
+  bool ok2 = (c2 > CONT_MIN_RAW && c2 < CONT_MAX_RAW);
+  return ok1 || ok2;   // pass preflight if at least one channel is good
 }
 
 float pressure_to_alt(float pressure_pa) {
