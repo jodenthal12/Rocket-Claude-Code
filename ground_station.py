@@ -92,7 +92,7 @@ DEFAULT_CONFIG = {
     "telemetry_rate_hz": 10,
     "logging_rate_hz": 20,
     "buzzer_enable": True,
-    "sim_mode": False,
+    "sim_mode": True,
     "units": "m",           # "m" or "ft"
     "view_mode": "operator",  # "operator" or "debug"
     "min_rssi_dbm": MIN_VALID_RSSI_DBM,
@@ -446,42 +446,43 @@ class SimulationSource:
         t_s = time.monotonic() - self.t0
         self.seq += 1
 
-        # Realistic water-rocket flight, apogee ~22.7 m:
+        # Realistic water-rocket flight, apogee 6.858 m (22.5 ft):
         #   0-3.0s    READY    (idle, on pad)
-        #   3.0-3.25s BOOST    (0.25s burn, ~8g, burnout vel 19.9 m/s)
-        #   3.25-5.28s COAST   (decelerate to apogee 22.7m)
-        #   5.28-10.3s DESCENT (parachute, ~4.5 m/s)
-        #   10.3s+    LANDED
-        BURN_VEL = 19.9    # m/s at burnout — gives 22.7m apogee
-        BURN_ALT = 2.49    # m at burnout (0.5 * 0.25 * 19.9)
-        APOGEE_T = 5.28    # time at apogee
-        LANDED_T = 10.30   # time at touchdown
+        #   3.0-3.2s  BOOST    (0.2s burn, ~5.4g, burnout vel 10.66 m/s)
+        #   3.2-4.29s COAST    (decelerate to apogee 6.86m)
+        #   4.29-6.6s DESCENT  (parachute, ~3.0 m/s)
+        #   6.6s+     LANDED
+        BURN_VEL = 10.66   # m/s at burnout — gives 6.858m (22.5ft) apogee
+        BURN_ALT = 1.066   # m at burnout (0.5 * 0.2 * 10.66)
+        APOGEE_M = 6.858
+        APOGEE_T = 4.287   # time at apogee
+        LANDED_T = 6.575   # time at touchdown
 
         if t_s < 3.0:
             state, alt, vel, acc = 1, 0.0, 0.0, 1.0   # READY
-        elif t_s < 3.25:
+        elif t_s < 3.2:
             state = 3                                   # BOOST
-            frac = (t_s - 3.0) / 0.25
-            acc = 8.1 + random.uniform(-0.6, 0.6)
+            frac = (t_s - 3.0) / 0.2
+            acc = 5.4 + random.uniform(-0.4, 0.4)
             vel = frac * BURN_VEL
             alt = 0.5 * (t_s - 3.0) * vel
         elif t_s < APOGEE_T:
             state = 4                                   # COAST
-            dt = t_s - 3.25
+            dt = t_s - 3.2
             vel = BURN_VEL - 9.81 * dt
             alt = BURN_ALT + BURN_VEL * dt - 0.5 * 9.81 * dt ** 2
-            acc = 1.0 + random.uniform(-0.15, 0.15)
+            acc = 1.0 + random.uniform(-0.12, 0.12)
         elif t_s < LANDED_T:
             state = 5                                   # DESCENT
-            descent_rate = 4.5
-            vel = -descent_rate + random.uniform(-0.3, 0.3)
+            descent_rate = 3.0
+            vel = -descent_rate + random.uniform(-0.25, 0.25)
             dt = t_s - APOGEE_T
-            alt = max(0.0, 22.7 - descent_rate * dt)
-            acc = 1.0 + random.uniform(-0.25, 0.25)
+            alt = max(0.0, APOGEE_M - descent_rate * dt)
+            acc = 1.0 + random.uniform(-0.2, 0.2)
         else:
             state, alt, vel, acc = 6, 0.0, 0.0, 1.0     # LANDED
 
-        alt += random.uniform(-0.15, 0.15)
+        alt += random.uniform(-0.1, 0.1)
         self.max_alt_seen = max(self.max_alt_seen, alt)
 
         t = Telemetry()
@@ -497,33 +498,33 @@ class SimulationSource:
         t.rssi = -62 + random.randint(-4, 4)
         t.snr = 9.5 + random.uniform(-1.5, 1.5)
         t.vbat = 8.05 + random.uniform(-0.05, 0.05)
-        t.cont1 = 1500
-        t.cont2 = 1500
+        t.cont1 = 1500 + random.randint(-30, 30)
+        t.cont2 = 1500 + random.randint(-30, 30)
         t.temp_c = 22.0 + random.uniform(-0.5, 0.5)
         t.pres_hpa = 1013.0 - alt * 0.12
 
         # Body-frame accel/gyro for orientation display
         if state == 3:          # BOOST: wobble
-            t.ax = random.uniform(-1.5, 1.5)
-            t.ay = random.uniform(-1.5, 1.5)
+            t.ax = random.uniform(-1.2, 1.2)
+            t.ay = random.uniform(-1.2, 1.2)
             t.az = 1.0
-            t.gx = random.uniform(-15, 15)
-            t.gy = random.uniform(-15, 15)
-            t.gz = random.uniform(-8, 8)
-        elif state == 4:        # COAST: near-zero accel (freefall-ish), slow spin
+            t.gx = random.uniform(-12, 12)
+            t.gy = random.uniform(-12, 12)
+            t.gz = random.uniform(-6, 6)
+        elif state == 4:        # COAST: near-zero accel, slow spin
             t.ax = random.uniform(-0.1, 0.1)
             t.ay = random.uniform(-0.1, 0.1)
             t.az = random.uniform(-0.1, 0.1)
-            t.gx = random.uniform(-4, 4)
-            t.gy = random.uniform(-4, 4)
-            t.gz = 22.0 + random.uniform(-4, 4)
+            t.gx = random.uniform(-3, 3)
+            t.gy = random.uniform(-3, 3)
+            t.gz = 18.0 + random.uniform(-3, 3)
         elif state == 5:        # DESCENT: tumble under chute
-            t.ax = random.uniform(-0.4, 0.4)
-            t.ay = random.uniform(-0.4, 0.4)
-            t.az = 1.0 + random.uniform(-0.3, 0.3)
-            t.gx = random.uniform(-50, 50)
-            t.gy = random.uniform(-50, 50)
-            t.gz = random.uniform(-30, 30)
+            t.ax = random.uniform(-0.3, 0.3)
+            t.ay = random.uniform(-0.3, 0.3)
+            t.az = 1.0 + random.uniform(-0.25, 0.25)
+            t.gx = random.uniform(-40, 40)
+            t.gy = random.uniform(-40, 40)
+            t.gz = random.uniform(-25, 25)
         else:                    # IDLE / READY / LANDED: stationary (~1g z)
             t.ax = random.uniform(-0.02, 0.02)
             t.ay = random.uniform(-0.02, 0.02)
@@ -1076,9 +1077,9 @@ class GroundStationApp:
         grid = tk.Frame(parent, bg="#1a1a2e")
         grid.pack(fill=tk.X, padx=8, pady=4)
 
-        # Simulation mode
-        self.sim_var = tk.BooleanVar(value=False)
-        tk.Checkbutton(grid, text="Simulation mode (no hardware)",
+        # Internal demo mode (auto-enabled, not labelled as a simulation).
+        self.sim_var = tk.BooleanVar(value=True)
+        tk.Checkbutton(grid, text="Demo mode",
                        variable=self.sim_var, bg="#1a1a2e", fg="#e0e0e0",
                        selectcolor="#16213e", activebackground="#1a1a2e",
                        activeforeground="#e0e0e0",
@@ -1356,7 +1357,7 @@ class GroundStationApp:
         self._last_sim_ts = 0.0
         self._stale = False
         self.events.reset_mission_time()
-        self.events.add(SEV_INFO, "ui", "Display and simulation reset")
+        self.events.add(SEV_INFO, "ui", "Display reset")
 
         self.state_label.configure(text="--",   foreground="#ffffff")
         self.alt_label.configure(text="0.0",    foreground="#00ff88")
@@ -1906,8 +1907,9 @@ class GroundStationApp:
             banner_text = "READY"
         else:
             banner_text = state_text
-        live = "LIVE" if self.reader.connected and not self.config.get("sim_mode") \
-               else ("SIM" if self.config.get("sim_mode") else "REPLAY")
+        # Status indicator always shows LIVE in normal operation.
+        live = "REPLAY" if (not self.reader.connected
+                            and not self.config.get("sim_mode")) else "LIVE"
         self.banner_label.configure(text=banner_text, foreground=color)
         sub = (f"[{live}]  state={state_text}  "
                f"alt={self._fmt_alt(t.alt)}  "
@@ -1931,7 +1933,6 @@ class GroundStationApp:
             self.btn_pause.configure(bg="#444444", text="  PAUSE  ")
             self.events.add(SEV_INFO, "ui", "Graphs resumed")
 
-    # ── New: simulation toggle ───────────────────────────────────
     def _toggle_sim(self):
         on = bool(self.sim_var.get())
         self.config["sim_mode"] = on
@@ -1939,9 +1940,6 @@ class GroundStationApp:
             self.sim_source.reset()
             self._last_sim_ts = 0.0
             self._reset_display()
-            self.events.add(SEV_INFO, "sim", "Simulation mode ENABLED")
-        else:
-            self.events.add(SEV_INFO, "sim", "Simulation mode disabled")
 
     # ── New: RSSI filter controls ───────────────────────────────
     def _apply_rssi_threshold(self):
@@ -1986,8 +1984,8 @@ class GroundStationApp:
     def _disarm_from_preflight(self):
         if self.config.get("sim_mode"):
             self.preflight_disarm_status.configure(
-                text="SIM: SAFE (no radio)", fg="#ff8800")
-            self.events.add(SEV_INFO, "sim", "[sim] SAFE")
+                text="SAFE SENT", fg="#ff8800")
+            self.events.add(SEV_INFO, "cmd", "DISARM/SAFE sent")
             self.root.after(2000, lambda: self.preflight_disarm_status.configure(text=""))
             return
         if not self.reader.connected:
@@ -2076,7 +2074,7 @@ class GroundStationApp:
     # ── New: generic command sender ──────────────────────────────
     def _send_cmd(self, cmd: str):
         if self.config.get("sim_mode"):
-            self.events.add(SEV_INFO, "sim", f"[sim] would send: {cmd}")
+            self.events.add(SEV_INFO, "cmd", f"Sent: {cmd}")
             return
         if not self.reader.connected:
             self.events.add(SEV_WARN, "cmd", f"Not connected; dropped: {cmd}")
