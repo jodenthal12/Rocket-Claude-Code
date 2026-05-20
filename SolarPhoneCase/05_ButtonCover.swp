@@ -1,0 +1,87 @@
+' =============================================================
+' Macro:    ButtonCover
+' Project:  Solar-Powered Phone Case (iPhone 17 Pro Max)
+' =============================================================
+' Tactile button cover that fits inside one of the side button
+' cutouts. Press it to actuate the phone's button through the
+' case wall. (Use one instance per button in the assembly.)
+' =============================================================
+
+Dim swApp           As SldWorks.SldWorks
+Dim Part            As SldWorks.ModelDoc2
+Dim sketchMgr       As SldWorks.SketchManager
+Dim featMgr         As SldWorks.FeatureManager
+Dim swFeat          As SldWorks.Feature
+Dim boolStatus      As Boolean
+
+Const BTN_L         As Double = 20#     ' length of one button cover
+Const BTN_W         As Double = 4.5     ' fits in 5mm slot with clearance
+Const BTN_T         As Double = 3#      ' thickness (sticks out a bit from wall)
+Const PRESS_INSET   As Double = 2#      ' inner cavity so it flexes
+Const PRESS_DEPTH   As Double = 1.5
+
+Function MM(val As Double) As Double
+    MM = val / 1000#
+End Function
+
+Sub main()
+
+    Set swApp = Application.SldWorks
+
+    Dim sTemplate As String
+    sTemplate = swApp.GetUserPreferenceStringValue(swUserPreferenceStringValue_e.swDefaultTemplatePart)
+    Set Part = swApp.NewDocument(sTemplate, 0, 0, 0)
+    If Part Is Nothing Then
+        MsgBox "Could not create new part."
+        Exit Sub
+    End If
+
+    Set sketchMgr = Part.SketchManager
+    Set featMgr = Part.FeatureManager
+
+    Part.Extension.SetUserPreferenceInteger swUserPreferenceIntegerValue_e.swUnitSystem, 0, swUnitSystem_e.swUnitSystem_MKS
+    Part.Extension.SetUserPreferenceInteger swUserPreferenceIntegerValue_e.swUnitsLinear, 0, swLengthUnit_e.swMM
+
+    ' --------------------------------------------------------
+    ' Feature 1: Main button body
+    ' --------------------------------------------------------
+    boolStatus = Part.Extension.SelectByID2("Top Plane", "PLANE", 0, 0, 0, False, 0, Nothing, 0)
+    sketchMgr.InsertSketch True
+    sketchMgr.CreateCornerRectangle -MM(BTN_L / 2), -MM(BTN_W / 2), 0, MM(BTN_L / 2), MM(BTN_W / 2), 0
+    sketchMgr.InsertSketch True
+
+    Part.Extension.SelectByID2 "Sketch1", "SKETCH", 0, 0, 0, False, 0, Nothing, 0
+    Set swFeat = featMgr.FeatureExtrusion3(True, False, False, 0, 0, MM(BTN_T), 0, _
+        False, False, False, False, 0, 0, False, False, False, False, _
+        True, True, True, 0, 0, False)
+    swFeat.Name = "ButtonBody"
+    Part.ClearSelection2 True
+
+    ' --------------------------------------------------------
+    ' Feature 2: Hollow the back so the button flexes when pressed
+    ' --------------------------------------------------------
+    boolStatus = Part.Extension.SelectByID2("", "FACE", 0, 0, 0, False, 0, Nothing, 0)
+    sketchMgr.InsertSketch True
+    Dim ilen As Double, iwid As Double
+    ilen = BTN_L - PRESS_INSET * 2
+    iwid = BTN_W - PRESS_INSET
+    sketchMgr.CreateCornerRectangle -MM(ilen / 2), -MM(iwid / 2), 0, MM(ilen / 2), MM(iwid / 2), 0
+    sketchMgr.InsertSketch True
+
+    Part.Extension.SelectByID2 "Sketch2", "SKETCH", 0, 0, 0, False, 0, Nothing, 0
+    Set swFeat = featMgr.FeatureCut3(True, False, False, 0, 0, MM(PRESS_DEPTH), 0, _
+        False, False, False, False, 0, 0, False, False, False, False, _
+        True, True, True, True, 0, 0, False)
+    If Not swFeat Is Nothing Then swFeat.Name = "FlexCavity"
+    Part.ClearSelection2 True
+
+    ' (Optional: add a small fillet to the press face edges
+    ' manually after the macro completes.)
+
+    Part.ForceRebuild3 True
+    Part.ViewZoomtofit2
+
+    MsgBox "ButtonCover finished!" & vbCrLf & _
+           "Now use File > Save As > ButtonCover.SLDPRT", vbInformation, "Solar Phone Case"
+
+End Sub

@@ -1,0 +1,72 @@
+' =============================================================
+' Macro:    CameraBezel
+' Project:  Solar-Powered Phone Case (iPhone 17 Pro Max)
+' =============================================================
+' A raised rectangular bezel that mounts around the camera
+' cutout on the back of the case. Provides camera protection
+' when the phone is laid on its back.
+' =============================================================
+
+Dim swApp           As SldWorks.SldWorks
+Dim Part            As SldWorks.ModelDoc2
+Dim sketchMgr       As SldWorks.SketchManager
+Dim featMgr         As SldWorks.FeatureManager
+Dim swFeat          As SldWorks.Feature
+Dim boolStatus      As Boolean
+
+Const BEZEL_L       As Double = 56#     ' outer length (camera cutout is 50)
+Const BEZEL_W       As Double = 48#     ' outer width (camera cutout is 42)
+Const BEZEL_T       As Double = 2#      ' total thickness (raised height)
+Const HOLE_L        As Double = 50#     ' inner opening
+Const HOLE_W        As Double = 42#
+
+Function MM(val As Double) As Double
+    MM = val / 1000#
+End Function
+
+Sub main()
+
+    Set swApp = Application.SldWorks
+
+    Dim sTemplate As String
+    sTemplate = swApp.GetUserPreferenceStringValue(swUserPreferenceStringValue_e.swDefaultTemplatePart)
+    Set Part = swApp.NewDocument(sTemplate, 0, 0, 0)
+    If Part Is Nothing Then
+        MsgBox "Could not create new part."
+        Exit Sub
+    End If
+
+    Set sketchMgr = Part.SketchManager
+    Set featMgr = Part.FeatureManager
+
+    Part.Extension.SetUserPreferenceInteger swUserPreferenceIntegerValue_e.swUnitSystem, 0, swUnitSystem_e.swUnitSystem_MKS
+    Part.Extension.SetUserPreferenceInteger swUserPreferenceIntegerValue_e.swUnitsLinear, 0, swLengthUnit_e.swMM
+
+    ' --------------------------------------------------------
+    ' Feature 1: Extrude the bezel ring
+    ' Sketch the outer rectangle then the inner rectangle in
+    ' the same sketch - SolidWorks treats it as a ring profile.
+    ' --------------------------------------------------------
+    boolStatus = Part.Extension.SelectByID2("Top Plane", "PLANE", 0, 0, 0, False, 0, Nothing, 0)
+    sketchMgr.InsertSketch True
+    sketchMgr.CreateCornerRectangle -MM(BEZEL_L / 2), -MM(BEZEL_W / 2), 0, MM(BEZEL_L / 2), MM(BEZEL_W / 2), 0
+    sketchMgr.CreateCornerRectangle -MM(HOLE_L / 2), -MM(HOLE_W / 2), 0, MM(HOLE_L / 2), MM(HOLE_W / 2), 0
+    sketchMgr.InsertSketch True
+
+    Part.Extension.SelectByID2 "Sketch1", "SKETCH", 0, 0, 0, False, 0, Nothing, 0
+    Set swFeat = featMgr.FeatureExtrusion3(True, False, False, 0, 0, MM(BEZEL_T), 0, _
+        False, False, False, False, 0, 0, False, False, False, False, _
+        True, True, True, 0, 0, False)
+    swFeat.Name = "BezelRing"
+    Part.ClearSelection2 True
+
+    ' (Optional: select the outer vertical edges in SolidWorks
+    ' and add a 1.5mm fillet for a more polished look.)
+
+    Part.ForceRebuild3 True
+    Part.ViewZoomtofit2
+
+    MsgBox "CameraBezel finished!" & vbCrLf & _
+           "Now use File > Save As > CameraBezel.SLDPRT", vbInformation, "Solar Phone Case"
+
+End Sub

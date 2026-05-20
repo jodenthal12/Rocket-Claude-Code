@@ -1,0 +1,110 @@
+' =============================================================
+' Macro:    SolarPanelTray
+' Project:  Solar-Powered Phone Case (iPhone 17 Pro Max)
+' =============================================================
+' The MOVING PART. This tray slides parallel to the back of the
+' case inside the recess. It has a thin lip on one edge so the
+' user can pull it out, and a shallow pocket on top to seat the
+' SolarPanel part.
+' =============================================================
+
+Dim swApp           As SldWorks.SldWorks
+Dim Part            As SldWorks.ModelDoc2
+Dim sketchMgr       As SldWorks.SketchManager
+Dim featMgr         As SldWorks.FeatureManager
+Dim swFeat          As SldWorks.Feature
+Dim boolStatus      As Boolean
+
+' --- Dimensions in mm (must align with the case recess) ---
+Const TRAY_L        As Double = 129#    ' 1mm clearance vs case recess (130)
+Const TRAY_W        As Double = 71#     ' 1mm clearance vs case recess (72)
+Const TRAY_T        As Double = 2.5     ' tray thickness
+Const PANEL_POCKET_L As Double = 120#
+Const PANEL_POCKET_W As Double = 65#
+Const PANEL_POCKET_D As Double = 1#
+Const PULL_LIP_L    As Double = 25#     ' the grip tab
+Const PULL_LIP_W    As Double = 6#
+Const PULL_LIP_T    As Double = 2.5
+
+Function MM(val As Double) As Double
+    MM = val / 1000#
+End Function
+
+Sub main()
+
+    Set swApp = Application.SldWorks
+
+    Dim sTemplate As String
+    sTemplate = swApp.GetUserPreferenceStringValue(swUserPreferenceStringValue_e.swDefaultTemplatePart)
+    Set Part = swApp.NewDocument(sTemplate, 0, 0, 0)
+    If Part Is Nothing Then
+        MsgBox "Could not create new part."
+        Exit Sub
+    End If
+
+    Set sketchMgr = Part.SketchManager
+    Set featMgr = Part.FeatureManager
+
+    Part.Extension.SetUserPreferenceInteger swUserPreferenceIntegerValue_e.swUnitSystem, 0, swUnitSystem_e.swUnitSystem_MKS
+    Part.Extension.SetUserPreferenceInteger swUserPreferenceIntegerValue_e.swUnitsLinear, 0, swLengthUnit_e.swMM
+
+    ' --------------------------------------------------------
+    ' Feature 1: Main tray plate
+    ' --------------------------------------------------------
+    boolStatus = Part.Extension.SelectByID2("Top Plane", "PLANE", 0, 0, 0, False, 0, Nothing, 0)
+    sketchMgr.InsertSketch True
+    sketchMgr.CreateCornerRectangle -MM(TRAY_L / 2), -MM(TRAY_W / 2), 0, MM(TRAY_L / 2), MM(TRAY_W / 2), 0
+    sketchMgr.InsertSketch True
+
+    Part.Extension.SelectByID2 "Sketch1", "SKETCH", 0, 0, 0, False, 0, Nothing, 0
+    Set swFeat = featMgr.FeatureExtrusion3(True, False, False, 0, 0, MM(TRAY_T), 0, _
+        False, False, False, False, 0, 0, False, False, False, False, _
+        True, True, True, 0, 0, False)
+    swFeat.Name = "TrayPlate"
+    Part.ClearSelection2 True
+
+    ' --------------------------------------------------------
+    ' Feature 2: Pocket for the solar panel (on the top face)
+    ' --------------------------------------------------------
+    boolStatus = Part.Extension.SelectByID2("", "FACE", 0, 0, MM(TRAY_T), False, 0, Nothing, 0)
+    sketchMgr.InsertSketch True
+    sketchMgr.CreateCornerRectangle -MM(PANEL_POCKET_L / 2), -MM(PANEL_POCKET_W / 2), 0, MM(PANEL_POCKET_L / 2), MM(PANEL_POCKET_W / 2), 0
+    sketchMgr.InsertSketch True
+
+    Part.Extension.SelectByID2 "Sketch2", "SKETCH", 0, 0, 0, False, 0, Nothing, 0
+    Set swFeat = featMgr.FeatureCut3(True, False, False, 0, 0, MM(PANEL_POCKET_D), 0, _
+        False, False, False, False, 0, 0, False, False, False, False, _
+        True, True, True, True, 0, 0, False)
+    swFeat.Name = "PanelPocket"
+    Part.ClearSelection2 True
+
+    ' --------------------------------------------------------
+    ' Feature 3: Pull lip (small tab to grab the tray)
+    ' Sticks out one short end of the tray.
+    ' --------------------------------------------------------
+    boolStatus = Part.Extension.SelectByID2("Top Plane", "PLANE", 0, 0, 0, False, 0, Nothing, 0)
+    sketchMgr.InsertSketch True
+    ' Place the lip at +Y end (the end that ends up at the bottom edge of the case)
+    Dim yStart As Double, yEnd As Double
+    yStart = TRAY_W / 2
+    yEnd = TRAY_W / 2 + PULL_LIP_W
+    sketchMgr.CreateCornerRectangle -MM(PULL_LIP_L / 2), MM(yStart), 0, MM(PULL_LIP_L / 2), MM(yEnd), 0
+    sketchMgr.InsertSketch True
+
+    Part.Extension.SelectByID2 "Sketch3", "SKETCH", 0, 0, 0, False, 0, Nothing, 0
+    Set swFeat = featMgr.FeatureExtrusion3(True, False, False, 0, 0, MM(PULL_LIP_T), 0, _
+        False, False, False, False, 0, 0, False, False, False, False, _
+        True, True, True, 0, 0, False)
+    swFeat.Name = "PullLip"
+    Part.ClearSelection2 True
+
+    ' (Optional: add a 1mm fillet to the pull lip edges manually
+    ' in SolidWorks for a more finished look.)
+
+    Part.ForceRebuild3 True
+    Part.ViewZoomtofit2
+
+    MsgBox "SolarPanelTray finished!" & vbCrLf & _
+           "Now use File > Save As > SolarPanelTray.SLDPRT", vbInformation, "Solar Phone Case"
+
+End Sub
