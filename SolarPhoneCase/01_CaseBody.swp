@@ -1,0 +1,233 @@
+' =============================================================
+' Macro:    CaseBody
+' Project:  Solar-Powered Phone Case (iPhone 17 Pro Max)
+' Course:   Engineering Design - Semester 2 Final
+' =============================================================
+' Builds the main case shell: phone cavity, camera cutout,
+' side button cutouts, USB-C cutout, and the back recess
+' that the solar panel tray slides in.
+' =============================================================
+
+Dim swApp           As SldWorks.SldWorks
+Dim Part            As SldWorks.ModelDoc2
+Dim sketchMgr       As SldWorks.SketchManager
+Dim featMgr         As SldWorks.FeatureManager
+Dim selMgr          As SldWorks.SelectionMgr
+Dim swFeat          As SldWorks.Feature
+Dim boolStatus      As Boolean
+
+' --- Dimensions in millimeters (edit here if you change phones) ---
+Const PHONE_L       As Double = 163#    ' phone length
+Const PHONE_W       As Double = 78#     ' phone width
+Const PHONE_T       As Double = 8.25    ' phone thickness
+Const WALL          As Double = 3#      ' side wall thickness
+Const BACK_WALL     As Double = 4#      ' back wall (thicker for solar)
+Const CASE_L        As Double = PHONE_L + 2 * WALL          ' 169
+Const CASE_W        As Double = PHONE_W + 2 * WALL          ' 84
+Const CASE_T        As Double = PHONE_T + BACK_WALL + 1#    ' 13.25 -> use 13.5
+Const SCREEN_INSET  As Double = 4#      ' lip around screen opening
+Const CAM_L         As Double = 50#     ' camera cutout length
+Const CAM_W         As Double = 42#     ' camera cutout width
+Const CAM_OFFSET    As Double = 10#     ' from top edge to top of camera
+Const TRAY_L        As Double = 130#    ' length of solar tray recess
+Const TRAY_W        As Double = 72#     ' width of solar tray recess
+Const TRAY_DEPTH    As Double = 3#      ' depth of recess
+Const BTN_VOL_L     As Double = 45#     ' volume button slot length
+Const BTN_PWR_L     As Double = 22#     ' power button slot length
+Const BTN_H         As Double = 5#      ' button slot height
+Const USB_L         As Double = 12#     ' USB-C cutout length
+Const USB_W         As Double = 4#      ' USB-C cutout width
+
+' Convert mm to meters (SolidWorks API uses SI units)
+Function MM(val As Double) As Double
+    MM = val / 1000#
+End Function
+
+Sub main()
+
+    Set swApp = Application.SldWorks
+
+    ' Open a new part using default template
+    Dim sTemplate As String
+    sTemplate = swApp.GetUserPreferenceStringValue(swUserPreferenceStringValue_e.swDefaultTemplatePart)
+    Set Part = swApp.NewDocument(sTemplate, 0, 0, 0)
+
+    If Part Is Nothing Then
+        MsgBox "Could not create new part. Check your default template settings."
+        Exit Sub
+    End If
+
+    Set sketchMgr = Part.SketchManager
+    Set featMgr = Part.FeatureManager
+    Set selMgr = Part.SelectionManager
+
+    ' Set document units to MMGS (mm, grams, seconds)
+    Part.Extension.SetUserPreferenceInteger swUserPreferenceIntegerValue_e.swUnitSystem, 0, swUnitSystem_e.swUnitSystem_MKS
+    Part.Extension.SetUserPreferenceInteger swUserPreferenceIntegerValue_e.swUnitsLinear, 0, swLengthUnit_e.swMM
+
+    ' --------------------------------------------------------
+    ' Feature 1: Base extrude - outer block
+    ' --------------------------------------------------------
+    boolStatus = Part.Extension.SelectByID2("Top Plane", "PLANE", 0, 0, 0, False, 0, Nothing, 0)
+    sketchMgr.InsertSketch True
+    sketchMgr.CreateCornerRectangle -MM(CASE_L / 2), -MM(CASE_W / 2), 0, MM(CASE_L / 2), MM(CASE_W / 2), 0
+    sketchMgr.InsertSketch True
+
+    Part.Extension.SelectByID2 "Sketch1", "SKETCH", 0, 0, 0, False, 0, Nothing, 0
+    Set swFeat = featMgr.FeatureExtrusion3(True, False, False, 0, 0, MM(CASE_T), 0, _
+        False, False, False, False, 0, 0, False, False, False, False, _
+        True, True, True, 0, 0, False)
+    swFeat.Name = "CaseBlock"
+    Part.ClearSelection2 True
+
+    ' --------------------------------------------------------
+    ' Feature 2: Phone cavity (open top - front of phone)
+    ' Cuts down from the top face leaving a pocket the phone sits in.
+    ' Leaves a small lip around the screen so the phone is retained.
+    ' --------------------------------------------------------
+    boolStatus = Part.Extension.SelectByID2("", "FACE", 0, 0, MM(CASE_T), False, 0, Nothing, 0) ' top face
+    sketchMgr.InsertSketch True
+    Dim cavL As Double, cavW As Double
+    cavL = PHONE_L + 0.5         ' 0.5 mm tolerance
+    cavW = PHONE_W + 0.5
+    sketchMgr.CreateCornerRectangle -MM(cavL / 2), -MM(cavW / 2), 0, MM(cavL / 2), MM(cavW / 2), 0
+    sketchMgr.InsertSketch True
+
+    Part.Extension.SelectByID2 "Sketch2", "SKETCH", 0, 0, 0, False, 0, Nothing, 0
+    Set swFeat = featMgr.FeatureCut3(True, False, False, 0, 0, MM(PHONE_T + 0.25), 0, _
+        False, False, False, False, 0, 0, False, False, False, False, _
+        True, True, True, True, 0, 0, False)
+    swFeat.Name = "PhoneCavity"
+    Part.ClearSelection2 True
+
+    ' --------------------------------------------------------
+    ' Feature 3: Screen opening (cuts through the front face)
+    ' The screen is exposed - cuts away the lip in the screen area.
+    ' --------------------------------------------------------
+    boolStatus = Part.Extension.SelectByID2("", "FACE", 0, 0, MM(CASE_T - PHONE_T - 0.25), False, 0, Nothing, 0)
+    sketchMgr.InsertSketch True
+    Dim scrL As Double, scrW As Double
+    scrL = PHONE_L - SCREEN_INSET * 2
+    scrW = PHONE_W - SCREEN_INSET * 2
+    sketchMgr.CreateCornerRectangle -MM(scrL / 2), -MM(scrW / 2), 0, MM(scrL / 2), MM(scrW / 2), 0
+    sketchMgr.InsertSketch True
+
+    Part.Extension.SelectByID2 "Sketch3", "SKETCH", 0, 0, 0, False, 0, Nothing, 0
+    Set swFeat = featMgr.FeatureCut3(True, False, False, 1, 0, 0, 0, _
+        False, False, False, False, 0, 0, False, False, False, False, _
+        True, True, True, True, 0, 0, False)  ' Through-all
+    swFeat.Name = "ScreenOpening"
+    Part.ClearSelection2 True
+
+    ' --------------------------------------------------------
+    ' Feature 4: Camera cutout on back
+    ' --------------------------------------------------------
+    boolStatus = Part.Extension.SelectByID2("", "FACE", 0, 0, 0, False, 0, Nothing, 0)  ' bottom (back) face
+    sketchMgr.InsertSketch True
+    Dim camCY As Double
+    camCY = CASE_W / 2 - CAM_OFFSET - CAM_W / 2     ' centered horizontally, offset from one end
+    sketchMgr.CreateCornerRectangle -MM(CAM_L / 2), MM(camCY - CAM_W / 2), 0, MM(CAM_L / 2), MM(camCY + CAM_W / 2), 0
+    sketchMgr.InsertSketch True
+
+    Part.Extension.SelectByID2 "Sketch4", "SKETCH", 0, 0, 0, False, 0, Nothing, 0
+    Set swFeat = featMgr.FeatureCut3(True, False, False, 1, 0, 0, 0, _
+        False, False, False, False, 0, 0, False, False, False, False, _
+        True, True, True, True, 0, 0, False)  ' Through-all
+    swFeat.Name = "CameraCutout"
+    Part.ClearSelection2 True
+
+    ' --------------------------------------------------------
+    ' Feature 5: Solar panel tray recess on back
+    ' Open at the bottom edge so the tray can slide out.
+    ' --------------------------------------------------------
+    boolStatus = Part.Extension.SelectByID2("", "FACE", 0, 0, 0, False, 0, Nothing, 0)
+    sketchMgr.InsertSketch True
+    ' Position the recess in the lower 2/3 of the back, opens out the bottom edge
+    Dim trayCY As Double
+    trayCY = -(CASE_W / 2 - TRAY_W / 2 - 4)   ' leave 4mm wall opposite the open end
+    ' open end goes all the way to the bottom edge (-CASE_W/2)
+    Dim trayBot As Double, trayTop As Double
+    trayTop = trayCY + TRAY_W / 2
+    trayBot = -CASE_W / 2 - 1#                 ' overshoot so it cuts through the bottom wall
+    sketchMgr.CreateCornerRectangle -MM(TRAY_L / 2), MM(trayBot), 0, MM(TRAY_L / 2), MM(trayTop), 0
+    sketchMgr.InsertSketch True
+
+    Part.Extension.SelectByID2 "Sketch5", "SKETCH", 0, 0, 0, False, 0, Nothing, 0
+    Set swFeat = featMgr.FeatureCut3(True, False, False, 0, 0, MM(TRAY_DEPTH), 0, _
+        False, False, False, False, 0, 0, False, False, False, False, _
+        True, True, True, True, 0, 0, False)
+    swFeat.Name = "SolarTrayRecess"
+    Part.ClearSelection2 True
+
+    ' --------------------------------------------------------
+    ' Feature 6: Volume button slots (left side)
+    ' --------------------------------------------------------
+    boolStatus = Part.Extension.SelectByID2("Front Plane", "PLANE", 0, 0, 0, False, 0, Nothing, 0)
+    sketchMgr.InsertSketch True
+    Dim btnZ As Double, btnY As Double
+    btnZ = CASE_T - PHONE_T / 2 - 0.25        ' centered on the phone thickness inside the case
+    btnY = 20#                                ' offset from center toward top
+    sketchMgr.CreateCornerRectangle -MM(BTN_VOL_L / 2), MM(btnZ - BTN_H / 2), 0, MM(BTN_VOL_L / 2), MM(btnZ + BTN_H / 2), 0
+    sketchMgr.InsertSketch True
+
+    ' Cut through left side wall only - blind from front plane in -Y direction
+    Part.Extension.SelectByID2 "Sketch6", "SKETCH", 0, 0, 0, False, 0, Nothing, 0
+    Set swFeat = featMgr.FeatureCut3(False, False, True, 0, 0, MM(CASE_W / 2 + 1), MM(-(CASE_W / 2 - WALL - 25)), _
+        False, False, False, False, 0, 0, False, False, False, False, _
+        True, True, True, True, 0, 0, False)
+    If Not swFeat Is Nothing Then swFeat.Name = "VolumeButtonSlots"
+    Part.ClearSelection2 True
+
+    ' --------------------------------------------------------
+    ' Feature 7: Power button slot (right side)
+    ' --------------------------------------------------------
+    boolStatus = Part.Extension.SelectByID2("Front Plane", "PLANE", 0, 0, 0, False, 0, Nothing, 0)
+    sketchMgr.InsertSketch True
+    Dim pwrX As Double
+    pwrX = -15#       ' offset along length
+    sketchMgr.CreateCornerRectangle MM(pwrX - BTN_PWR_L / 2), MM(btnZ - BTN_H / 2), 0, MM(pwrX + BTN_PWR_L / 2), MM(btnZ + BTN_H / 2), 0
+    sketchMgr.InsertSketch True
+
+    Part.Extension.SelectByID2 "Sketch7", "SKETCH", 0, 0, 0, False, 0, Nothing, 0
+    Set swFeat = featMgr.FeatureCut3(False, True, True, 0, 0, MM(CASE_W / 2 + 1), MM(-(CASE_W / 2 - WALL - 25)), _
+        False, False, False, False, 0, 0, False, False, False, False, _
+        True, True, True, True, 0, 0, False)
+    If Not swFeat Is Nothing Then swFeat.Name = "PowerButtonSlot"
+    Part.ClearSelection2 True
+
+    ' --------------------------------------------------------
+    ' Feature 8: USB-C port cutout (bottom edge)
+    ' --------------------------------------------------------
+    boolStatus = Part.Extension.SelectByID2("Right Plane", "PLANE", 0, 0, 0, False, 0, Nothing, 0)
+    sketchMgr.InsertSketch True
+    sketchMgr.CreateCornerRectangle -MM(USB_L / 2), MM(btnZ - USB_W / 2), 0, MM(USB_L / 2), MM(btnZ + USB_W / 2), 0
+    sketchMgr.InsertSketch True
+
+    Part.Extension.SelectByID2 "Sketch8", "SKETCH", 0, 0, 0, False, 0, Nothing, 0
+    Set swFeat = featMgr.FeatureCut3(False, False, True, 0, 0, MM(CASE_L / 2 + 1), MM(-(CASE_L / 2 - WALL - 5)), _
+        False, False, False, False, 0, 0, False, False, False, False, _
+        True, True, True, True, 0, 0, False)
+    If Not swFeat Is Nothing Then swFeat.Name = "USBPortCutout"
+    Part.ClearSelection2 True
+
+    ' --------------------------------------------------------
+    ' (Optional: add fillets manually in SolidWorks after the
+    ' macro finishes - select the outer vertical edges and use
+    ' Insert > Features > Fillet with a 2mm radius for a more
+    ' comfortable hold.)
+    ' --------------------------------------------------------
+
+    ' --------------------------------------------------------
+    ' Rebuild and zoom to fit
+    ' --------------------------------------------------------
+    Part.ForceRebuild3 True
+    Part.ViewZoomtofit2
+
+    ' Rename the part feature tree root
+    Dim sName As String
+    sName = "CaseBody"
+
+    MsgBox "CaseBody finished!" & vbCrLf & _
+           "Now use File > Save As > CaseBody.SLDPRT", vbInformation, "Solar Phone Case"
+
+End Sub

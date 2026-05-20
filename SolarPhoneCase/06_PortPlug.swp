@@ -1,0 +1,103 @@
+' =============================================================
+' Macro:    PortPlug
+' Project:  Solar-Powered Phone Case (iPhone 17 Pro Max)
+' =============================================================
+' USB-C port dust plug. Pushes into the USB cutout in the
+' bottom of the case. Has a small tab so it can be pulled out
+' when the user needs to charge.
+' =============================================================
+
+Dim swApp           As SldWorks.SldWorks
+Dim Part            As SldWorks.ModelDoc2
+Dim sketchMgr       As SldWorks.SketchManager
+Dim featMgr         As SldWorks.FeatureManager
+Dim swFeat          As SldWorks.Feature
+Dim boolStatus      As Boolean
+
+Const PLUG_L        As Double = 11.5    ' fits in 12mm USB cutout
+Const PLUG_W        As Double = 3.6     ' fits in 4mm USB cutout
+Const PLUG_BODY_T   As Double = 5#      ' depth of the plug body
+Const FLANGE_L      As Double = 16#     ' outer flange (sits flush with case)
+Const FLANGE_W      As Double = 7#
+Const FLANGE_T      As Double = 1.5
+Const TAB_L         As Double = 6#      ' pull tab
+Const TAB_W         As Double = 4#
+Const TAB_T         As Double = 1.2
+
+Function MM(val As Double) As Double
+    MM = val / 1000#
+End Function
+
+Sub main()
+
+    Set swApp = Application.SldWorks
+
+    Dim sTemplate As String
+    sTemplate = swApp.GetUserPreferenceStringValue(swUserPreferenceStringValue_e.swDefaultTemplatePart)
+    Set Part = swApp.NewDocument(sTemplate, 0, 0, 0)
+    If Part Is Nothing Then
+        MsgBox "Could not create new part."
+        Exit Sub
+    End If
+
+    Set sketchMgr = Part.SketchManager
+    Set featMgr = Part.FeatureManager
+
+    Part.Extension.SetUserPreferenceInteger swUserPreferenceIntegerValue_e.swUnitSystem, 0, swUnitSystem_e.swUnitSystem_MKS
+    Part.Extension.SetUserPreferenceInteger swUserPreferenceIntegerValue_e.swUnitsLinear, 0, swLengthUnit_e.swMM
+
+    ' --------------------------------------------------------
+    ' Feature 1: Outer flange (the part that sits flush against the case)
+    ' --------------------------------------------------------
+    boolStatus = Part.Extension.SelectByID2("Top Plane", "PLANE", 0, 0, 0, False, 0, Nothing, 0)
+    sketchMgr.InsertSketch True
+    sketchMgr.CreateCornerRectangle -MM(FLANGE_L / 2), -MM(FLANGE_W / 2), 0, MM(FLANGE_L / 2), MM(FLANGE_W / 2), 0
+    sketchMgr.InsertSketch True
+
+    Part.Extension.SelectByID2 "Sketch1", "SKETCH", 0, 0, 0, False, 0, Nothing, 0
+    Set swFeat = featMgr.FeatureExtrusion3(True, False, False, 0, 0, MM(FLANGE_T), 0, _
+        False, False, False, False, 0, 0, False, False, False, False, _
+        True, True, True, 0, 0, False)
+    swFeat.Name = "Flange"
+    Part.ClearSelection2 True
+
+    ' --------------------------------------------------------
+    ' Feature 2: Plug body (extrudes into the port)
+    ' --------------------------------------------------------
+    boolStatus = Part.Extension.SelectByID2("", "FACE", 0, 0, MM(FLANGE_T), False, 0, Nothing, 0)
+    sketchMgr.InsertSketch True
+    sketchMgr.CreateCornerRectangle -MM(PLUG_L / 2), -MM(PLUG_W / 2), 0, MM(PLUG_L / 2), MM(PLUG_W / 2), 0
+    sketchMgr.InsertSketch True
+
+    Part.Extension.SelectByID2 "Sketch2", "SKETCH", 0, 0, 0, False, 0, Nothing, 0
+    Set swFeat = featMgr.FeatureExtrusion3(True, False, False, 0, 0, MM(PLUG_BODY_T), 0, _
+        False, False, False, False, 0, 0, False, False, False, False, _
+        True, True, True, 0, 0, False)
+    swFeat.Name = "PlugBody"
+    Part.ClearSelection2 True
+
+    ' --------------------------------------------------------
+    ' Feature 3: Pull tab on the opposite face
+    ' --------------------------------------------------------
+    boolStatus = Part.Extension.SelectByID2("Top Plane", "PLANE", 0, 0, 0, False, 0, Nothing, 0)
+    sketchMgr.InsertSketch True
+    sketchMgr.CreateCornerRectangle MM(FLANGE_L / 2), -MM(TAB_W / 2), 0, MM(FLANGE_L / 2 + TAB_L), MM(TAB_W / 2), 0
+    sketchMgr.InsertSketch True
+
+    Part.Extension.SelectByID2 "Sketch3", "SKETCH", 0, 0, 0, False, 0, Nothing, 0
+    Set swFeat = featMgr.FeatureExtrusion3(True, False, False, 0, 0, MM(TAB_T), 0, _
+        False, False, False, False, 0, 0, False, False, False, False, _
+        True, True, True, 0, 0, False)
+    swFeat.Name = "PullTab"
+    Part.ClearSelection2 True
+
+    ' (Optional: select the outer edges in SolidWorks and add
+    ' a 0.5mm fillet for a more finished look.)
+
+    Part.ForceRebuild3 True
+    Part.ViewZoomtofit2
+
+    MsgBox "PortPlug finished!" & vbCrLf & _
+           "Now use File > Save As > PortPlug.SLDPRT", vbInformation, "Solar Phone Case"
+
+End Sub

@@ -1,0 +1,103 @@
+' =============================================================
+' Macro:    SolarPanel
+' Project:  Solar-Powered Phone Case (iPhone 17 Pro Max)
+' =============================================================
+' The photovoltaic cell. Thin plate with a shallow grid pattern
+' on the top face representing the solar cell segmentation.
+' =============================================================
+
+Dim swApp           As SldWorks.SldWorks
+Dim Part            As SldWorks.ModelDoc2
+Dim sketchMgr       As SldWorks.SketchManager
+Dim featMgr         As SldWorks.FeatureManager
+Dim swFeat          As SldWorks.Feature
+Dim boolStatus      As Boolean
+
+Const PANEL_L       As Double = 119#
+Const PANEL_W       As Double = 64#
+Const PANEL_T       As Double = 1#
+Const CELL_ROWS     As Integer = 3
+Const CELL_COLS     As Integer = 6
+Const CELL_GAP      As Double = 0.6      ' visible gap between cells
+
+Function MM(val As Double) As Double
+    MM = val / 1000#
+End Function
+
+Sub main()
+
+    Set swApp = Application.SldWorks
+
+    Dim sTemplate As String
+    sTemplate = swApp.GetUserPreferenceStringValue(swUserPreferenceStringValue_e.swDefaultTemplatePart)
+    Set Part = swApp.NewDocument(sTemplate, 0, 0, 0)
+    If Part Is Nothing Then
+        MsgBox "Could not create new part."
+        Exit Sub
+    End If
+
+    Set sketchMgr = Part.SketchManager
+    Set featMgr = Part.FeatureManager
+
+    Part.Extension.SetUserPreferenceInteger swUserPreferenceIntegerValue_e.swUnitSystem, 0, swUnitSystem_e.swUnitSystem_MKS
+    Part.Extension.SetUserPreferenceInteger swUserPreferenceIntegerValue_e.swUnitsLinear, 0, swLengthUnit_e.swMM
+
+    ' --------------------------------------------------------
+    ' Feature 1: Base plate
+    ' --------------------------------------------------------
+    boolStatus = Part.Extension.SelectByID2("Top Plane", "PLANE", 0, 0, 0, False, 0, Nothing, 0)
+    sketchMgr.InsertSketch True
+    sketchMgr.CreateCornerRectangle -MM(PANEL_L / 2), -MM(PANEL_W / 2), 0, MM(PANEL_L / 2), MM(PANEL_W / 2), 0
+    sketchMgr.InsertSketch True
+
+    Part.Extension.SelectByID2 "Sketch1", "SKETCH", 0, 0, 0, False, 0, Nothing, 0
+    Set swFeat = featMgr.FeatureExtrusion3(True, False, False, 0, 0, MM(PANEL_T), 0, _
+        False, False, False, False, 0, 0, False, False, False, False, _
+        True, True, True, 0, 0, False)
+    swFeat.Name = "PanelBase"
+    Part.ClearSelection2 True
+
+    ' --------------------------------------------------------
+    ' Feature 2: Solar cell grid - shallow grooves on top face
+    ' Cuts a grid of lines to show the cell segmentation.
+    ' --------------------------------------------------------
+    boolStatus = Part.Extension.SelectByID2("", "FACE", 0, 0, MM(PANEL_T), False, 0, Nothing, 0)
+    sketchMgr.InsertSketch True
+
+    Dim cellW As Double, cellH As Double
+    cellW = (PANEL_L - (CELL_COLS + 1) * CELL_GAP) / CELL_COLS
+    cellH = (PANEL_W - (CELL_ROWS + 1) * CELL_GAP) / CELL_ROWS
+
+    ' Draw horizontal lines between rows
+    Dim i As Integer
+    For i = 1 To CELL_ROWS - 1
+        Dim yLine As Double
+        yLine = -PANEL_W / 2 + CELL_GAP + i * (cellH + CELL_GAP) - CELL_GAP / 2
+        Dim r1 As Object
+        Set r1 = sketchMgr.CreateCornerRectangle(-MM(PANEL_L / 2 - 2), MM(yLine - CELL_GAP / 2), 0, MM(PANEL_L / 2 - 2), MM(yLine + CELL_GAP / 2), 0)
+    Next i
+
+    ' Draw vertical lines between columns
+    For i = 1 To CELL_COLS - 1
+        Dim xLine As Double
+        xLine = -PANEL_L / 2 + CELL_GAP + i * (cellW + CELL_GAP) - CELL_GAP / 2
+        Dim r2 As Object
+        Set r2 = sketchMgr.CreateCornerRectangle(MM(xLine - CELL_GAP / 2), -MM(PANEL_W / 2 - 2), 0, MM(xLine + CELL_GAP / 2), MM(PANEL_W / 2 - 2), 0)
+    Next i
+
+    sketchMgr.InsertSketch True
+
+    Part.Extension.SelectByID2 "Sketch2", "SKETCH", 0, 0, 0, False, 0, Nothing, 0
+    Set swFeat = featMgr.FeatureCut3(True, False, False, 0, 0, MM(0.3), 0, _
+        False, False, False, False, 0, 0, False, False, False, False, _
+        True, True, True, True, 0, 0, False)
+    If Not swFeat Is Nothing Then swFeat.Name = "CellGrid"
+    Part.ClearSelection2 True
+
+    Part.ForceRebuild3 True
+    Part.ViewZoomtofit2
+
+    MsgBox "SolarPanel finished!" & vbCrLf & _
+           "Now use File > Save As > SolarPanel.SLDPRT", vbInformation, "Solar Phone Case"
+
+End Sub
