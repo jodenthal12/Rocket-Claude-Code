@@ -71,7 +71,7 @@ Sub main()
     Part.Extension.SelectByID2 "Sketch2", "SKETCH", 0, 0, 0, False, 0, Nothing, 0
     Set swFeat = featMgr.FeatureCut3(True, False, False, 0, 0, MM(PRESS_DEPTH), 0, _
         False, False, False, False, 0, 0, False, False, False, False, _
-        True, True, True, True, 0, 0, False)
+        True, True, True, True, False, 0, 0, False)
     If Not swFeat Is Nothing Then swFeat.Name = "FlexCavity"
     Part.ClearSelection2 True
 

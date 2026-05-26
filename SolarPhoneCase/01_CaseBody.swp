@@ -96,7 +96,7 @@ Sub main()
     Part.Extension.SelectByID2 "Sketch2", "SKETCH", 0, 0, 0, False, 0, Nothing, 0
     Set swFeat = featMgr.FeatureCut3(True, False, False, 0, 0, MM(PHONE_T + 0.25), 0, _
         False, False, False, False, 0, 0, False, False, False, False, _
-        True, True, True, True, 0, 0, False)
+        True, True, True, True, False, 0, 0, False)
     swFeat.Name = "PhoneCavity"
     Part.ClearSelection2 True
 
@@ -115,7 +115,7 @@ Sub main()
     Part.Extension.SelectByID2 "Sketch3", "SKETCH", 0, 0, 0, False, 0, Nothing, 0
     Set swFeat = featMgr.FeatureCut3(True, False, False, 1, 0, 0, 0, _
         False, False, False, False, 0, 0, False, False, False, False, _
-        True, True, True, True, 0, 0, False)  ' Through-all
+        True, True, True, True, False, 0, 0, False)  ' Through-all
     swFeat.Name = "ScreenOpening"
     Part.ClearSelection2 True
 
@@ -132,7 +132,7 @@ Sub main()
     Part.Extension.SelectByID2 "Sketch4", "SKETCH", 0, 0, 0, False, 0, Nothing, 0
     Set swFeat = featMgr.FeatureCut3(True, False, False, 1, 0, 0, 0, _
         False, False, False, False, 0, 0, False, False, False, False, _
-        True, True, True, True, 0, 0, False)  ' Through-all
+        True, True, True, True, False, 0, 0, False)  ' Through-all
     swFeat.Name = "CameraCutout"
     Part.ClearSelection2 True
 
@@ -155,7 +155,7 @@ Sub main()
     Part.Extension.SelectByID2 "Sketch5", "SKETCH", 0, 0, 0, False, 0, Nothing, 0
     Set swFeat = featMgr.FeatureCut3(True, False, False, 0, 0, MM(TRAY_DEPTH), 0, _
         False, False, False, False, 0, 0, False, False, False, False, _
-        True, True, True, True, 0, 0, False)
+        True, True, True, True, False, 0, 0, False)
     swFeat.Name = "SolarTrayRecess"
     Part.ClearSelection2 True
 
@@ -174,7 +174,7 @@ Sub main()
     Part.Extension.SelectByID2 "Sketch6", "SKETCH", 0, 0, 0, False, 0, Nothing, 0
     Set swFeat = featMgr.FeatureCut3(False, False, True, 0, 0, MM(CASE_W / 2 + 1), MM(-(CASE_W / 2 - WALL - 25)), _
         False, False, False, False, 0, 0, False, False, False, False, _
-        True, True, True, True, 0, 0, False)
+        True, True, True, True, False, 0, 0, False)
     If Not swFeat Is Nothing Then swFeat.Name = "VolumeButtonSlots"
     Part.ClearSelection2 True
 
@@ -191,7 +191,7 @@ Sub main()
     Part.Extension.SelectByID2 "Sketch7", "SKETCH", 0, 0, 0, False, 0, Nothing, 0
     Set swFeat = featMgr.FeatureCut3(False, True, True, 0, 0, MM(CASE_W / 2 + 1), MM(-(CASE_W / 2 - WALL - 25)), _
         False, False, False, False, 0, 0, False, False, False, False, _
-        True, True, True, True, 0, 0, False)
+        True, True, True, True, False, 0, 0, False)
     If Not swFeat Is Nothing Then swFeat.Name = "PowerButtonSlot"
     Part.ClearSelection2 True
 
@@ -206,7 +206,7 @@ Sub main()
     Part.Extension.SelectByID2 "Sketch8", "SKETCH", 0, 0, 0, False, 0, Nothing, 0
     Set swFeat = featMgr.FeatureCut3(False, False, True, 0, 0, MM(CASE_L / 2 + 1), MM(-(CASE_L / 2 - WALL - 5)), _
         False, False, False, False, 0, 0, False, False, False, False, _
-        True, True, True, True, 0, 0, False)
+        True, True, True, True, False, 0, 0, False)
     If Not swFeat Is Nothing Then swFeat.Name = "USBPortCutout"
     Part.ClearSelection2 True
 
