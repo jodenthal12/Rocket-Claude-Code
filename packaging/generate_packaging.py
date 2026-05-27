@@ -155,7 +155,7 @@ class Canvas:
         # grid lines clipped to circle
         self._e('q %s W n'%self.circle_path(cx,cy,r))
         for dy in (-r*0.5,0,r*0.5):
-            self._e('%s %s %s %s %s w %s %s m %s %s l S'%(0.55,0.36,0.0,'',f(r*0.06),f(cx-r),f(cy+dy),f(cx+r),f(cy+dy)))
+            self._e('%s %s %s RG %s w %s %s m %s %s l S'%(0.55,0.36,0.0,f(r*0.06),f(cx-r),f(cy+dy),f(cx+r),f(cy+dy)))
         for dx in (-r*0.5,0,r*0.5):
             self._e('%s %s %s RG %s w %s %s m %s %s l S'%(0.55,0.36,0.0,f(r*0.06),f(cx+dx),f(cy-r),f(cx+dx),f(cy+r)))
         self._e('Q')
