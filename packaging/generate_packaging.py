@@ -16,7 +16,7 @@ def textw(s, size, bold=False, tc=0.0):
     return w
 
 def esc(s):
-    s=s.replace('’',"'").replace('‘',"'").replace('“','"').replace('”','"')
+    s=s.replace(''',"'").replace(''',"'").replace('"','"').replace('"','"')
     s=s.replace('•','\x95').replace('–','-').replace('—','-')
     s=s.replace('☀','').replace('•','\x95')
     s=''.join(c if ord(c)<256 else '?' for c in s)
@@ -291,7 +291,6 @@ def front():
     icon_sun(cv,22,H-92,7)
     cv.text(33,H-95,'100% SOLAR',7.5,(0.96,0.72,0.06),True,0.5)
     cv.line(16,H-104,W-16,H-104,(0.30,0.24,0.08),0.6)
-    cv.ctext(W/2,22,'bloomcases.com',7,(0.7,0.7,0.74),False,1.0)
     make_page(cv)
 
 # ============================================================
@@ -310,14 +309,16 @@ def back():
     cv.logo(W/2,H-40,0.62)
 
     cv.layer('Content')
+    # top section: what's inside
     y=H-78
-    cv.text(20,y,'WHAT’S INSIDE',11,(0.96,0.72,0.06),True,0.6); y-=18
-    for item in ['1x  Bloom Solar Phone Case','1x  USB-C Charging Cable','1x  Quick Start Guide']:
+    cv.text(20,y,"WHAT'S INSIDE",11,(0.96,0.72,0.06),True,0.6); y-=18
+    for item in ['1x  Bloom Solar Phone Case','1x  Quick Start Guide']:
         cv.text(24,y,item,8.5,(0.88,0.88,0.9),False,0.2); y-=14
-    y-=10
-    cv.text(20,y,'FEATURES',11,(0.96,0.72,0.06),True,0.6); y-=22
+    y-=12
+    # features
+    cv.text(20,y,'FEATURES',11,(0.96,0.72,0.06),True,0.6); y-=20
     feats=[('sun','Solar charging  •  5W output'),
-           ('bat','2000mAh backup battery'),
+           ('bat','2000mAh backup battery + MagSafe'),
            ('leaf','Eco-friendly recycled shell'),
            ('shield','Military-grade drop protection')]
     for kind,label in feats:
@@ -325,38 +326,27 @@ def back():
         elif kind=='bat': icon_battery(cv,28,y+3,7)
         elif kind=='leaf': icon_leaf(cv,28,y+3,7)
         else: icon_shield(cv,28,y+3,7)
-        cv.text(42,y,label,8.5,(0.9,0.9,0.92),False,0.2); y-=23
+        cv.text(42,y,label,8.5,(0.9,0.9,0.92),False,0.2); y-=20
 
-    # tagline band filling mid-panel
-    y-=4
-    cv.line(20,y+8,W-20,y+8,(0.30,0.24,0.08),0.6)
-    cv.ctext(W/2,y-12,'GROW YOUR POWER',13,(0.96,0.72,0.06),True,1.2)
-    cv.ctext(W/2,y-28,'Clip on. Soak up the sun. Stay charged',8.5,(0.82,0.82,0.86),False,0.2)
-    cv.ctext(W/2,y-40,'all day, naturally.',8.5,(0.82,0.82,0.86),False,0.2)
-    cv.line(20,y-52,W-20,y-52,(0.30,0.24,0.08),0.6)
+    # tagline immediately below features
+    y-=2
+    cv.line(20,y,W-20,y,(0.30,0.24,0.08),0.6); y-=18
+    cv.ctext(W/2,y,'GROW YOUR POWER',13,(0.96,0.72,0.06),True,1.2); y-=16
+    cv.ctext(W/2,y,'Clip on. Soak up the sun. Stay charged',8.5,(0.82,0.82,0.86),False,0.2); y-=13
+    cv.ctext(W/2,y,'all day, naturally.',8.5,(0.82,0.82,0.86),False,0.2); y-=14
+    cv.line(20,y,W-20,y,(0.30,0.24,0.08),0.6)
 
     cv.layer('Details')
-    # specs box
-    bx=18; bw=W-36; bh=70; by=58
+    # specs box immediately below tagline
+    bx=18; bw=W-36; bh=72; by=y-bh-10
     box=cv.axial(bx,by+bh,bx,by,(0.13,0.13,0.16),(0.08,0.08,0.10))
     cv.fill_grad(cv.rrect_path(bx,by,bw,bh,8),box)
     cv.stroke(cv.rrect_path(bx,by,bw,bh,8),(0.30,0.24,0.08),0.7)
-    sy=by+bh-16
+    sy=by+bh-14
     cv.text(bx+12,sy,'SPECIFICATIONS',8,(0.96,0.72,0.06),True,0.8); sy-=14
-    for line in ['Battery: 2000mAh Li-Po','Solar output: 5W  /  Port: USB-C','Compatible: iPhone 14 / 15 / 16']:
-        cv.text(bx+12,sy,line,7.5,(0.82,0.82,0.85),False,0.1); sy-=11
-    # barcode
-    import random; random.seed(7)
-    bxs=W-72; bw2=54; bh2=22; byb=30
-    cv.fill_solid(cv.rect(bxs-5,byb-14,bw2+10,bh2+22),(1,1,1))
-    xx=bxs
-    while xx<bxs+bw2:
-        wd=random.choice([0.7,1.1,1.6,0.9])
-        cv.fill_solid(cv.rect(xx,byb,wd,bh2),(0,0,0))
-        xx+=wd+random.choice([0.8,1.2,1.6])
-    cv.ctext(bxs+bw2/2,byb-10,'8 12345 67890 4',6,(0,0,0),False,0.3)
-    cv.text(20,30,'Made with sunlight ☀',7.5,(0.24,0.75,0.42),True,0.3)
-    cv.text(20,20,'© 2026 Bloom  •  bloomcases.com',6.5,(0.6,0.6,0.64),False,0.2)
+    for line in ['Battery: 2000mAh Li-Po','Solar output: 5W','Compatible: iPhone 17 Pro Max','MagSafe compatible']:
+        cv.text(bx+12,sy,line,7.5,(0.82,0.82,0.85),False,0.1); sy-=12
+    cv.text(bx+12,by-14,'Made with sunlight',7.5,(0.24,0.75,0.42),True,0.3)
     make_page(cv)
 
 # ============================================================
@@ -382,7 +372,7 @@ def spine():
         %(f(size),f(1.5),f(x),f(y),esc(s)))
     make_page(cv)
 
-front(); back(); spine()
+front(); back()
 
 # finalize pages tree
 kids=' '.join('%d 0 R'%r for r in PAGE_REFS)
