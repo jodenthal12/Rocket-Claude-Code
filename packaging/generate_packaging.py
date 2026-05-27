@@ -258,23 +258,28 @@ def front():
     # --- Product hero (phone case w/ solar back) ---
     cv.layer('Product')
     cw=86; ch=170; cx0=W/2-cw/2; cy0=H*0.46-ch/2
+    # outer rim shell
+    cv.fill_solid(cv.rrect_path(cx0-4,cy0-4,cw+8,ch+8,18),(0.30,0.30,0.35))
     body=cv.axial(cx0,cy0+ch,cx0+cw,cy0,(0.20,0.20,0.24),(0.07,0.07,0.09))
     cv.fill_grad(cv.rrect_path(cx0,cy0,cw,ch,14),body)
-    cv.stroke(cv.rrect_path(cx0,cy0,cw,ch,14),(0.45,0.45,0.5),0.8)
-    # solar panel inset
-    ix=cx0+10; iy=cy0+34; iw=cw-20; ih=ch-72
+    cv.stroke(cv.rrect_path(cx0,cy0,cw,ch,14),(0.45,0.45,0.5),1.2)
+    cv.stroke(cv.rrect_path(cx0-4,cy0-4,cw+8,ch+8,18),(0.18,0.18,0.22),0.8)
+    # solar panel inset (3 x 5 grid, lower-center)
+    ix=cx0+12; iw=cw-24; ih=ch*0.62; iy=cy0+18
     sol=cv.axial(ix,iy+ih,ix+iw,iy,(1.0,0.85,0.35),(0.72,0.45,0.0))
-    cv.fill_grad(cv.rrect_path(ix,iy,iw,ih,6),sol)
-    cols=3; rows=6
+    cv.fill_grad(cv.rrect_path(ix,iy,iw,ih,4),sol)
+    cols=3; rows=5
     for c in range(1,cols):
-        cv.line(ix+iw*c/cols,iy+2,ix+iw*c/cols,iy+ih-2,(0.45,0.30,0.0),0.7)
+        cv.line(ix+iw*c/cols,iy+1,ix+iw*c/cols,iy+ih-1,(0.20,0.13,0.0),2.2)
     for r in range(1,rows):
-        cv.line(ix+2,iy+ih*r/rows,ix+iw-2,iy+ih*r/rows,(0.45,0.30,0.0),0.7)
-    # camera bump
-    cbx=cx0+18; cby=cy0+ch-20
-    cv.fill_solid(cv.rrect_path(cbx-9,cby-9,30,20,5),(0.05,0.05,0.07))
-    cv.fill_solid(cv.circle_path(cbx,cby,4),(0.15,0.16,0.20))
-    cv.fill_solid(cv.circle_path(cbx+12,cby,4),(0.15,0.16,0.20))
+        cv.line(ix+1,iy+ih*r/rows,ix+iw-1,iy+ih*r/rows,(0.20,0.13,0.0),2.2)
+    cv.stroke(cv.rrect_path(ix,iy,iw,ih,4),(0.20,0.13,0.0),2.0)
+    # cameras: two stacked circles, top-left
+    cbx=cx0+17; cby=cy0+ch-22
+    cv.fill_solid(cv.circle_path(cbx,cby,6.5),(0.12,0.13,0.16))
+    cv.fill_solid(cv.circle_path(cbx,cby,4.5),(0.22,0.23,0.28))
+    cv.fill_solid(cv.circle_path(cbx,cby-15,5.0),(0.12,0.13,0.16))
+    cv.fill_solid(cv.circle_path(cbx,cby-15,3.2),(0.22,0.23,0.28))
 
     # --- Content (taglines) ---
     cv.layer('Content')
