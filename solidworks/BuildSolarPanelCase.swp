@@ -1,0 +1,278 @@
+' ============================================================
+' Bloom Solar Panel Phone Case - SolidWorks 2025 Macro
+' Parts: SolarCaseBody, SolarPanelBack, HingeCover
+' Assembly: BloomSolarCaseAssembly
+' ============================================================
+
+Option Explicit
+
+Dim swApp As SldWorks.SldWorks
+Dim swModel As SldWorks.ModelDoc2
+Dim swPart As SldWorks.PartDoc
+Dim swSketch As SldWorks.Sketch
+Dim swFeature As SldWorks.Feature
+Dim boolstatus As Boolean
+Dim longstatus As Long
+Dim longwarnings As Long
+
+Const SAVE_PATH As String = "C:\BloomSolarCase\"
+
+Sub Main()
+    swApp = Application.SldWorks
+
+    ' Create output folder
+    If Dir(SAVE_PATH, vbDirectory) = "" Then
+        MkDir SAVE_PATH
+    End If
+
+    Call BuildSolarCaseBody
+    Call BuildSolarPanelBack
+    Call BuildHingeCover
+    Call BuildAssembly
+
+    MsgBox "Done! Files saved to " & SAVE_PATH, vbInformation, "Bloom Solar Case"
+End Sub
+
+' ============================================================
+' PART 1: SolarCaseBody
+' ============================================================
+Sub BuildSolarCaseBody()
+    swModel = swApp.NewDocument( _
+        swApp.GetUserPreferenceStringValue(swUserPreferenceStringValue_e.swDefaultTemplatePart), _
+        0, 0, 0)
+    swPart = swModel
+
+    ' --- Base sketch (phone outline) ---
+    swModel.SketchManager.InsertSketch True
+    swModel.ClearSelection2 True
+    swModel.SketchManager.CreateCenterRectangle 0, 0, 0, 0.038, 0.0835, 0
+    swModel.SketchManager.InsertSketch False
+
+    ' Boss-Extrude base shell (3mm thick)
+    swFeature = swPart.FeatureManager.FeatureExtrusion3( _
+        True, False, False, _
+        swEndConditions_e.swEndCondBlind, swEndConditions_e.swEndCondBlind, _
+        0.003, 0, _
+        False, False, False, False, _
+        0, 0, _
+        False, False, False, False, _
+        1, 1, 1, _
+        0, 0, False)
+    swModel.ClearSelection2 True
+
+    ' --- Inner cutout for phone (leave 1.5mm walls) ---
+    swModel.SketchManager.InsertSketch True
+    ' Select top face - offset inward 1.5mm each side
+    swModel.SketchManager.CreateCenterRectangle 0, 0, 0, 0.0365, 0.082, 0
+    swModel.SketchManager.InsertSketch False
+
+    swFeature = swPart.FeatureManager.FeatureCut3( _
+        True, False, False, _
+        swEndConditions_e.swEndCondBlind, swEndConditions_e.swEndCondBlind, _
+        0.002, 0, _
+        False, False, False, False, _
+        0, 0, _
+        False, False, False, False, _
+        False, 1, 1, _
+        False, False, False, False, _
+        0, 0, False, _
+        0.001, 0.001, True)
+    swModel.ClearSelection2 True
+
+    ' --- Camera cutout circle ---
+    swModel.SketchManager.InsertSketch True
+    swModel.SketchManager.CreateCircleByRadius 0.025, 0.07, 0, 0.006
+    swModel.SketchManager.InsertSketch False
+
+    swFeature = swPart.FeatureManager.FeatureCut3( _
+        True, False, False, _
+        swEndConditions_e.swEndCondThroughAll, swEndConditions_e.swEndCondThroughAll, _
+        0, 0, _
+        False, False, False, False, _
+        0, 0, _
+        False, False, False, False, _
+        False, 1, 1, _
+        False, False, False, False, _
+        0, 0, False, _
+        0.001, 0.001, True)
+    swModel.ClearSelection2 True
+
+    ' --- Charging port slot ---
+    swModel.SketchManager.InsertSketch True
+    swModel.SketchManager.CreateCenterRectangle 0, -0.083, 0, 0.005, 0.001, 0
+    swModel.SketchManager.InsertSketch False
+
+    swFeature = swPart.FeatureManager.FeatureCut3( _
+        True, False, False, _
+        swEndConditions_e.swEndCondThroughAll, swEndConditions_e.swEndCondThroughAll, _
+        0, 0, _
+        False, False, False, False, _
+        0, 0, _
+        False, False, False, False, _
+        False, 1, 1, _
+        False, False, False, False, _
+        0, 0, False, _
+        0.001, 0.001, True)
+    swModel.ClearSelection2 True
+
+    ' --- Edge fillets 1mm ---
+    swModel.Extension.SelectByID2 "Shell1", "BODYFEATURE", 0, 0, 0, False, 0, Nothing, 0
+    swFeature = swPart.FeatureManager.FeatureFillet(3, 0.001, 0, False, False, False, False, _
+        Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing)
+    swModel.ClearSelection2 True
+
+    ' Set material
+    swPart.SetMaterialPropertyName2 "", "SolidWorks Materials", "ABS"
+
+    ' Save
+    swModel.SaveAs SAVE_PATH & "SolarCaseBody.SLDPRT"
+    swModel.Quit
+End Sub
+
+' ============================================================
+' PART 2: SolarPanelBack
+' ============================================================
+Sub BuildSolarPanelBack()
+    swModel = swApp.NewDocument( _
+        swApp.GetUserPreferenceStringValue(swUserPreferenceStringValue_e.swDefaultTemplatePart), _
+        0, 0, 0)
+    swPart = swModel
+
+    ' --- Base panel ---
+    swModel.SketchManager.InsertSketch True
+    swModel.SketchManager.CreateCenterRectangle 0, 0, 0, 0.038, 0.0835, 0
+    swModel.SketchManager.InsertSketch False
+
+    swFeature = swPart.FeatureManager.FeatureExtrusion3( _
+        True, False, False, _
+        swEndConditions_e.swEndCondBlind, swEndConditions_e.swEndCondBlind, _
+        0.001, 0, _
+        False, False, False, False, _
+        0, 0, _
+        False, False, False, False, _
+        1, 1, 1, _
+        0, 0, False)
+    swModel.ClearSelection2 True
+
+    ' --- Solar cell grid: 2 columns x 4 rows of cells ---
+    Dim col As Integer
+    Dim row As Integer
+    Dim cellW As Double
+    Dim cellH As Double
+    Dim gapX As Double
+    Dim gapY As Double
+    Dim startX As Double
+    Dim startY As Double
+    Dim cx As Double
+    Dim cy As Double
+
+    cellW = 0.016
+    cellH = 0.018
+    gapX = 0.003
+    gapY = 0.003
+    startX = -0.0175
+    startY = -0.072
+
+    For row = 0 To 3
+        For col = 0 To 1
+            cx = startX + col * (cellW + gapX) + cellW / 2
+            cy = startY + row * (cellH + gapY) + cellH / 2
+
+            swModel.SketchManager.InsertSketch True
+            swModel.SketchManager.CreateCenterRectangle cx, cy, 0, cellW / 2, cellH / 2, 0
+            swModel.SketchManager.InsertSketch False
+
+            ' Extrude each cell up 0.5mm
+            swFeature = swPart.FeatureManager.FeatureExtrusion3( _
+                True, False, False, _
+                swEndConditions_e.swEndCondBlind, swEndConditions_e.swEndCondBlind, _
+                0.0005, 0, _
+                False, False, False, False, _
+                0, 0, _
+                False, False, False, False, _
+                1, 1, 1, _
+                0, 0, False)
+            swModel.ClearSelection2 True
+        Next col
+    Next row
+
+    ' Set material - Tempered Glass
+    swPart.SetMaterialPropertyName2 "", "SolidWorks Materials", "Glass"
+
+    swModel.SaveAs SAVE_PATH & "SolarPanelBack.SLDPRT"
+    swModel.Quit
+End Sub
+
+' ============================================================
+' PART 3: HingeCover (moving part - protective flap)
+' ============================================================
+Sub BuildHingeCover()
+    swModel = swApp.NewDocument( _
+        swApp.GetUserPreferenceStringValue(swUserPreferenceStringValue_e.swDefaultTemplatePart), _
+        0, 0, 0)
+    swPart = swModel
+
+    ' --- Cover plate ---
+    swModel.SketchManager.InsertSketch True
+    swModel.SketchManager.CreateCenterRectangle 0, 0, 0, 0.038, 0.02, 0
+    swModel.SketchManager.InsertSketch False
+
+    swFeature = swPart.FeatureManager.FeatureExtrusion3( _
+        True, False, False, _
+        swEndConditions_e.swEndCondBlind, swEndConditions_e.swEndCondBlind, _
+        0.002, 0, _
+        False, False, False, False, _
+        0, 0, _
+        False, False, False, False, _
+        1, 1, 1, _
+        0, 0, False)
+    swModel.ClearSelection2 True
+
+    ' --- Hinge barrel (cylinder) on left edge ---
+    swModel.SketchManager.InsertSketch True
+    swModel.SketchManager.CreateCircleByRadius -0.038, 0, 0, 0.003
+    swModel.SketchManager.InsertSketch False
+
+    swFeature = swPart.FeatureManager.FeatureExtrusion3( _
+        True, False, False, _
+        swEndConditions_e.swEndCondBlind, swEndConditions_e.swEndCondBlind, _
+        0.012, 0, _
+        False, False, False, False, _
+        0, 0, _
+        False, False, False, False, _
+        1, 1, 1, _
+        0, 0, False)
+    swModel.ClearSelection2 True
+
+    ' --- Fillet cover edges ---
+    swFeature = swPart.FeatureManager.FeatureFillet(3, 0.0008, 0, False, False, False, False, _
+        Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing)
+    swModel.ClearSelection2 True
+
+    swPart.SetMaterialPropertyName2 "", "SolidWorks Materials", "ABS"
+
+    swModel.SaveAs SAVE_PATH & "HingeCover.SLDPRT"
+    swModel.Quit
+End Sub
+
+' ============================================================
+' PART 4: Assembly
+' ============================================================
+Sub BuildAssembly()
+    Dim swAssy As SldWorks.AssemblyDoc
+    Dim swComp As SldWorks.Component2
+
+    swModel = swApp.NewDocument( _
+        swApp.GetUserPreferenceStringValue(swUserPreferenceStringValue_e.swDefaultTemplateAssembly), _
+        0, 0, 0)
+    swAssy = swModel
+
+    ' Insert parts
+    swAssy.AddComponent4 SAVE_PATH & "SolarCaseBody.SLDPRT", "", 0, 0, 0
+    swAssy.AddComponent4 SAVE_PATH & "SolarPanelBack.SLDPRT", "", 0, 0, -0.004
+    swAssy.AddComponent4 SAVE_PATH & "HingeCover.SLDPRT", "", 0, 0.0635, 0.002
+
+    swModel.EditRebuild3
+    swModel.SaveAs SAVE_PATH & "BloomSolarCaseAssembly.SLDASM"
+    swModel.Quit
+End Sub
