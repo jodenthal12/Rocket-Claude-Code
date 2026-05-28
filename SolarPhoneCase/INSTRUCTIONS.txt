@@ -1,0 +1,144 @@
+SOLAR-POWERED PHONE CASE - SolidWorks Build Instructions
+=========================================================
+
+What's in this folder
+---------------------
+01_CaseBody.swp        -> main case shell (phone cavity, camera/button/port cutouts, solar tray recess)
+02_SolarPanelTray.swp  -> sliding tray (THE MOVING PART)
+03_SolarPanel.swp      -> photovoltaic cell that sits on the tray
+04_CameraBezel.swp     -> raised frame around the camera
+05_ButtonCover.swp     -> button cover (used twice - power and volume)
+06_PortPlug.swp        -> USB-C dust plug
+07_Assembly.swp        -> brings it all together with mates
+
+Each .swp file is a SolidWorks macro that auto-builds one part.
+
+==============================================================
+HOW TO RUN A MACRO IN SOLIDWORKS (do this once for each part)
+==============================================================
+
+1. Open SolidWorks (no document needs to be open).
+
+2. Go to Tools -> Macro -> New...
+   - SolidWorks asks where to save the new .swp file.
+   - Save it somewhere (e.g. your project folder).
+   - The VBA editor (Microsoft Visual Basic for Applications) opens.
+
+3. In the VBA editor:
+   - Delete EVERYTHING in the code window.
+   - Open one of the .swp files in this folder using Notepad
+     (right-click the .swp file -> Open With -> Notepad).
+   - Copy ALL the code from Notepad.
+   - Paste it into the VBA editor code window.
+
+4. Press F5 (or click the green "Run" arrow at the top of the VBA editor).
+   - SolidWorks creates a brand-new part with all the features built in.
+   - A message box pops up when it's done.
+
+5. In SolidWorks, go to File -> Save As...
+   - Type the EXACT name shown in the message box (e.g. "CaseBody")
+   - Save as type: Part (*.sldprt)
+   - Save all 6 parts in the SAME FOLDER.
+   - VERY IMPORTANT: file names must have NO SPACES (the rubric requires it).
+
+6. Repeat steps 1-5 for each of the 6 part macros.
+   Save order:
+      CaseBody.SLDPRT
+      SolarPanelTray.SLDPRT
+      SolarPanel.SLDPRT
+      CameraBezel.SLDPRT
+      ButtonCover.SLDPRT
+      PortPlug.SLDPRT
+
+
+==============================================================
+BUILDING THE ASSEMBLY (07_Assembly.swp)
+==============================================================
+
+1. Open 07_Assembly.swp in Notepad.
+
+2. Find this line near the top:
+      Const FOLDER_PATH As String = "C:\Users\YourName\Documents\SolarPhoneCase\"
+   Change the path to the folder where you saved all your parts.
+   IMPORTANT: keep the trailing backslash "\".
+   Example: "C:\Users\jonny\Desktop\FinalProject\"
+
+3. In SolidWorks, Tools -> Macro -> New.
+
+4. Paste the (edited) assembly code into the VBA editor.
+
+5. Press F5. The assembly opens and all parts are inserted at
+   roughly the right positions, with CaseBody fixed at the origin.
+
+6. Add the mates listed in the popup message:
+      a. SolarPanelTray bottom face <-> CaseBody recess floor (Coincident)
+      b. SolarPanelTray long side face <-> CaseBody recess side wall (Coincident)
+         These TWO mates leave one direction free -> the tray slides!
+      c. SolarPanel bottom face <-> SolarPanelTray pocket floor (Coincident)
+      d. SolarPanel two side faces <-> SolarPanelTray pocket walls (Coincident)
+      e. CameraBezel bottom <-> Case back face (Coincident)
+      f. CameraBezel inner edges <-> Camera cutout edges (Coincident or Concentric)
+      g. ButtonCover (each one) into its button slot (Coincident on 3 faces)
+      h. PortPlug flange <-> bottom of case (Coincident); plug body into USB cutout (Coincident)
+
+   To add a mate: click the Mate tool (paperclip icon), pick two faces,
+   choose the mate type, click the green check.
+
+7. Test the moving part:
+   - Click and drag the SolarPanelTray - it should slide in/out of the case.
+   - That sliding motion is what you record in the demo video.
+
+8. Save the assembly:
+   File -> Save As -> SolarPhoneCase.SLDASM
+   Save in the SAME FOLDER as your parts.
+
+
+==============================================================
+DESIGN NOTES (so you can explain it in the demo video)
+==============================================================
+
+Phone (iPhone 17 Pro Max) target dimensions: 163 x 78 x 8.25 mm.
+Case overall: 169 x 84 x 13.5 mm. Walls: 3 mm sides, 4 mm back.
+
+How the moving part works:
+- The back of the case has a recessed rectangular track that opens
+  through the bottom edge of the case.
+- The SolarPanelTray fits in that track with about 0.5 mm of clearance
+  per side and the same depth as the recess.
+- A small "pull lip" on one end gives you something to grab.
+- When closed, the tray is flush with the back of the case.
+- When opened, you slide it out and the solar panel is exposed to
+  more sunlight (extending past the bottom of the phone).
+
+Two sketches you can show in the demo (per rubric):
+- CaseBody Sketch1 (the outer profile rectangle) - shows overall dimensions.
+- CaseBody Sketch4 (the camera cutout) - shows camera position.
+  OR show CaseBody Sketch5 (the tray recess) since that's the moving part.
+
+Materials to assign (right-click each part -> Material):
+  CaseBody, SolarPanelTray, CameraBezel, ButtonCover, PortPlug -> ABS Plastic
+  SolarPanel -> Silicon (or Glass) - blue color suits a solar cell
+
+
+==============================================================
+TROUBLESHOOTING
+==============================================================
+
+"swApp.NewDocument" fails / template path empty:
+  -> Tools -> Options -> File Locations -> Document Templates.
+     Make sure a Part template is set as the default.
+
+A FeatureCut fails partway through:
+  -> Step through the sketch numbers in the feature tree
+     (Sketch1, Sketch2, etc.) and check the geometry looks right.
+     The most likely cause is a face selection that picked the wrong face.
+     You can recover by editing that feature manually.
+
+Selection by face fails:
+  -> The macro uses coordinates to pick faces. If your default coordinate
+     system orientation is different (e.g. Top vs Front plane swapped),
+     edit the SelectByID2 calls to use the correct plane.
+
+Numbers look weird (parts in wrong place):
+  -> Check that the document units are set to MMGS:
+     Tools -> Options -> Document Properties -> Units -> MMGS.

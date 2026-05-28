@@ -1,0 +1,113 @@
+' =============================================================
+' Macro:    Assembly
+' Project:  Solar-Powered Phone Case (iPhone 17 Pro Max)
+' =============================================================
+' Builds the full assembly:
+'   1. CaseBody (fixed)
+'   2. SolarPanelTray (slides parallel to back - MOVING PART)
+'   3. SolarPanel (mounted on tray)
+'   4. CameraBezel (around camera cutout)
+'   5. ButtonCover x2 (volume and power)
+'   6. PortPlug (in USB-C cutout)
+'
+' BEFORE RUNNING:
+'   - Save each part with its exact name to a single folder.
+'   - Update FOLDER_PATH below to point to that folder.
+'
+' Mates created:
+'   - CaseBody fixed at origin
+'   - SolarPanelTray: 2 mates leave Y-axis sliding free
+'   - SolarPanel: fully constrained in tray pocket
+'   - Other parts: fully constrained on their features
+' =============================================================
+
+' >>> EDIT THIS PATH <<<
+Const FOLDER_PATH As String = "C:\Users\YourName\Documents\SolarPhoneCase\"
+
+Dim swApp           As SldWorks.SldWorks
+Dim Assy            As SldWorks.AssemblyDoc
+Dim AssyModel       As SldWorks.ModelDoc2
+Dim boolStatus      As Boolean
+Dim longStatus      As Long
+Dim longWarnings    As Long
+
+Sub main()
+
+    Set swApp = Application.SldWorks
+
+    ' ----------------------------------------------------
+    ' Create new assembly
+    ' ----------------------------------------------------
+    Dim sTemplate As String
+    sTemplate = swApp.GetUserPreferenceStringValue(swUserPreferenceStringValue_e.swDefaultTemplateAssembly)
+    Set AssyModel = swApp.NewDocument(sTemplate, 0, 0, 0)
+    If AssyModel Is Nothing Then
+        MsgBox "Could not create new assembly."
+        Exit Sub
+    End If
+    Set Assy = AssyModel
+
+    AssyModel.Extension.SetUserPreferenceInteger swUserPreferenceIntegerValue_e.swUnitSystem, 0, swUnitSystem_e.swUnitSystem_MKS
+    AssyModel.Extension.SetUserPreferenceInteger swUserPreferenceIntegerValue_e.swUnitsLinear, 0, swLengthUnit_e.swMM
+
+    ' ----------------------------------------------------
+    ' Insert components
+    ' ----------------------------------------------------
+    InsertComponent FOLDER_PATH & "CaseBody.SLDPRT", 0, 0, 0
+    InsertComponent FOLDER_PATH & "SolarPanelTray.SLDPRT", 0, 0, 0.02
+    InsertComponent FOLDER_PATH & "SolarPanel.SLDPRT", 0, 0, 0.025
+    InsertComponent FOLDER_PATH & "CameraBezel.SLDPRT", 0, 0.05, -0.01
+    InsertComponent FOLDER_PATH & "ButtonCover.SLDPRT", 0.045, 0, 0.005       ' power button
+    InsertComponent FOLDER_PATH & "ButtonCover.SLDPRT", -0.045, 0.02, 0.005   ' volume button (second instance)
+    InsertComponent FOLDER_PATH & "PortPlug.SLDPRT", 0, -0.045, 0.005
+
+    ' ----------------------------------------------------
+    ' Fix the case at the origin
+    ' ----------------------------------------------------
+    boolStatus = AssyModel.Extension.SelectByID2("CaseBody-1@" & GetAssyName(), "COMPONENT", 0, 0, 0, False, 0, Nothing, 0)
+    Assy.FixComponent
+
+    AssyModel.ClearSelection2 True
+
+    ' ----------------------------------------------------
+    ' Rebuild & zoom
+    ' ----------------------------------------------------
+    AssyModel.ForceRebuild3 True
+    AssyModel.ViewZoomtofit2
+
+    MsgBox "Assembly created!" & vbCrLf & vbCrLf & _
+           "MANUAL MATES TO ADD:" & vbCrLf & _
+           "1. SolarPanelTray bottom face -> CaseBody recess floor (COINCIDENT)" & vbCrLf & _
+           "2. SolarPanelTray side face -> CaseBody recess side wall (COINCIDENT)" & vbCrLf & _
+           "   (these two mates leave the tray free to slide along its length - that is your moving part!)" & vbCrLf & _
+           "3. SolarPanel bottom -> SolarPanelTray pocket floor (COINCIDENT)" & vbCrLf & _
+           "4. SolarPanel sides -> SolarPanelTray pocket walls (COINCIDENT)" & vbCrLf & _
+           "5. CameraBezel bottom -> CaseBody back face (COINCIDENT, around the camera cutout)" & vbCrLf & _
+           "6. ButtonCovers -> centered in their button slots (COINCIDENT x3)" & vbCrLf & _
+           "7. PortPlug flange -> bottom edge of case (COINCIDENT)" & vbCrLf & vbCrLf & _
+           "Save as: SolarPhoneCase.SLDASM", vbInformation, "Solar Phone Case Assembly"
+
+End Sub
+
+' --------------------------------------------------------
+' Helper: Insert a component at the given position (meters)
+' --------------------------------------------------------
+Sub InsertComponent(filePath As String, x As Double, y As Double, z As Double)
+    Dim comp As Object
+    Set comp = Assy.AddComponent5(filePath, 0, "", False, "", x, y, z)
+    If comp Is Nothing Then
+        MsgBox "Could not insert: " & filePath & vbCrLf & _
+               "Check that the file exists and the path is correct.", vbExclamation
+    End If
+End Sub
+
+' --------------------------------------------------------
+' Helper: returns the active assembly's filename for selection IDs
+' --------------------------------------------------------
+Function GetAssyName() As String
+    Dim s As String
+    s = AssyModel.GetTitle
+    ' Strip extension if present
+    If InStr(s, ".") > 0 Then s = Left(s, InStrRev(s, ".") - 1)
+    GetAssyName = s
+End Function
