@@ -260,76 +260,129 @@ def icon_shield(cv,cx,cy,r,c=AMBER):
     cv.line(cx-r*0.28,cy-r*0.05,cx-r*0.05,cy-r*0.32,c,r*0.16)
     cv.line(cx-r*0.05,cy-r*0.32,cx+r*0.35,cy+r*0.28,c,r*0.16)
 
+# distinct gaming-style helpers -------------------------------------
+CYAN=(0.10,0.82,0.92)
+def poly(cv,pts,c):
+    s='%s %s m '%(f(pts[0][0]),f(pts[0][1]))
+    for x,y in pts[1:]: s+='%s %s l '%(f(x),f(y))
+    cv.fill_solid(s+'h',c)
+def poly_stroke(cv,pts,c,wd):
+    s='%s %s m '%(f(pts[0][0]),f(pts[0][1]))
+    for x,y in pts[1:]: s+='%s %s l '%(f(x),f(y))
+    cv.stroke(s+'h',c,wd)
+def poly_grad(cv,pts,sh):
+    s='%s %s m '%(f(pts[0][0]),f(pts[0][1]))
+    for x,y in pts[1:]: s+='%s %s l '%(f(x),f(y))
+    cv.fill_grad(s+'h',sh)
+def hexagon(cx,cy,r):
+    return [(cx+math.cos(math.pi/6+i*math.pi/3)*r, cy+math.sin(math.pi/6+i*math.pi/3)*r) for i in range(6)]
+def scanlines(cv,W,H,gap,c,wd):
+    b=-H
+    while b<W:
+        cv.line(b,0,b+H,H,c,wd); b+=gap
+def corner_brackets(cv,x,y,w,h,c,L=16,wd=1.6):
+    cv.line(x,y,x+L,y,c,wd); cv.line(x,y,x,y+L,c,wd)
+    cv.line(x+w,y,x+w-L,y,c,wd); cv.line(x+w,y,x+w,y+L,c,wd)
+    cv.line(x,y+h,x+L,y+h,c,wd); cv.line(x,y+h,x,y+h-L,c,wd)
+    cv.line(x+w,y+h,x+w-L,y+h,c,wd); cv.line(x+w,y+h,x+w,y+h-L,c,wd)
+def heading(cv,x,y,s,size,c=AMBER,tc=1.0):
+    cv.fill_solid(cv.rect(x,y-2,4,size*0.95),c)
+    cv.text(x+11,y,s,size,(1,1,1),True,tc)
+def hexbadge(cv,cx,cy,r,kind):
+    poly(cv,hexagon(cx,cy,r),(0.15,0.13,0.11))
+    poly_stroke(cv,hexagon(cx,cy,r),AMBER,1.4)
+    if kind=='pad': icon_pad(cv,cx,cy,r*0.5)
+    elif kind=='bolt': icon_bolt(cv,cx,cy,r*0.55)
+    elif kind=='fan': icon_fan(cv,cx,cy,r*0.55)
+    else: icon_shield(cv,cx,cy,r*0.55)
+def statbar(cv,x,y,w,label,frac):
+    cv.text(x,y+5,label,7,(0.78,0.78,0.82),True,0.4)
+    bx=x+w*0.42; bw=w*0.58
+    cv.fill_solid(cv.rect(bx,y,bw,4),(0.20,0.18,0.16))
+    cv.fill_solid(cv.rect(bx,y,bw*frac,4),AMBER)
+
 # ============================================================
 # FRONT PANEL
 # ============================================================
 def front():
     cv=Canvas(W,H)
-    # --- Background ---
+    # --- Background: flat dark + diagonal scanline texture + amber wedge ---
     cv.layer('Background')
-    sh=cv.axial(0,H,0,0,(0.09,0.08,0.07),(0.03,0.03,0.04))
-    cv.fill_grad(cv.rect(0,0,W,H),sh)
-    glow=cv.radial(W/2,H*0.46,0, W/2,H*0.46,H*0.55,(0.42,0.28,0.06),(0.04,0.04,0.05))
-    cv.fill_grad(cv.rect(0,0,W,H),glow)
-    cv.fill_solid(cv.rect(0,0,W,8),AMBER)  # bottom amber bar
+    cv.fill_solid(cv.rect(0,0,W,H),(0.05,0.05,0.06))
+    scanlines(cv,W,H,9,(0.10,0.09,0.07),0.5)
+    # bold amber diagonal wedge behind hero (lower third)
+    poly(cv,[(0,H*0.20),(W,H*0.34),(W,H*0.40),(0,H*0.26)],(0.16,0.11,0.02))
+    # angled amber corner accents top
+    poly(cv,[(0,H),(W*0.42,H),(0,H-W*0.42)],(0.10,0.08,0.04))
+    cv.fill_solid(cv.rect(0,0,W,7),AMBER)
+    cv.fill_solid(cv.rect(0,0,W,2),CYAN)
 
     # --- Brand (logo top) ---
     cv.layer('Brand')
     cv.logo(W/2,H-46,0.92)
 
-    # --- Product hero (gaming handheld: phone + controller grips) ---
+    # --- Product hero inside a HUD targeting frame ---
     cv.layer('Product')
-    midy=H*0.45
-    # central phone screen
+    midy=H*0.44
     pw=44; ph=120; px=W/2-pw/2; py=midy-ph/2
-    # grip wings (left + right)
+    # cyan tech glow behind
+    glow=cv.radial(W/2,midy,0,W/2,midy,ph*0.7,(0.04,0.20,0.24),(0.05,0.05,0.06))
+    cv.fill_grad(cv.rect(0,midy-ph*0.8,W,ph*1.6),glow)
+    # HUD frame + crosshair ticks
+    fx=W/2-58; fw=116; fyt=midy-78; fh=156
+    corner_brackets(cv,fx,fyt,fw,fh,CYAN,L=18,wd=1.6)
+    cv.line(W/2,fyt-6,W/2,fyt+6,CYAN,1.0)
+    cv.line(W/2,fyt+fh-6,W/2,fyt+fh+6,CYAN,1.0)
+    cv.line(fx-6,midy,fx+6,midy,CYAN,1.0)
+    cv.line(fx+fw-6,midy,fx+fw+6,midy,CYAN,1.0)
+    # grip wings
     gw=26; gh=78
-    for sgn in (-1,1):
-        gx=W/2+sgn*(pw/2)-(0 if sgn<0 else gw)
-        gx=(px-gw+4) if sgn<0 else (px+pw-4)
-        grip=cv.axial(gx,py+gh,gx+gw,py,(0.22,0.22,0.26),(0.09,0.09,0.11))
+    for gx in (px-gw+4, px+pw-4):
+        grip=cv.axial(gx,py+gh,gx+gw,py,(0.20,0.20,0.24),(0.08,0.08,0.10))
         cv.fill_grad(cv.rrect_path(gx,midy-gh/2,gw,gh,12),grip)
-        cv.stroke(cv.rrect_path(gx,midy-gh/2,gw,gh,12),(0.40,0.40,0.46),1.0)
+        cv.stroke(cv.rrect_path(gx,midy-gh/2,gw,gh,12),AMBER,1.0)
     # phone body
-    body=cv.axial(px,py+ph,px+pw,py,(0.16,0.16,0.19),(0.06,0.06,0.08))
+    body=cv.axial(px,py+ph,px+pw,py,(0.14,0.14,0.17),(0.05,0.05,0.07))
     cv.fill_grad(cv.rrect_path(px,py,pw,ph,8),body)
     cv.stroke(cv.rrect_path(px,py,pw,ph,8),(0.45,0.45,0.5),1.2)
-    # screen with game-glow
+    # screen
     sx=px+4; sy=py+8; sw=pw-8; sh2=ph-16
-    scr=cv.axial(sx,sy+sh2,sx+sw,sy,(0.10,0.30,0.55),(0.55,0.20,0.45))
+    scr=cv.axial(sx,sy+sh2,sx+sw,sy,(0.06,0.28,0.40),(0.30,0.06,0.10))
     cv.fill_grad(cv.rrect_path(sx,sy,sw,sh2,4),scr)
-    # HUD bits on screen
-    cv.fill_solid(cv.rect(sx+4,sy+sh2-8,sw*0.4,3),(1,1,1))
+    cv.fill_solid(cv.rect(sx+4,sy+sh2-8,sw*0.4,3),CYAN)
     cv.fill_solid(cv.rect(sx+4,sy+sh2-14,sw*0.25,3),AMBER)
-    cv.fill_solid(cv.circle_path(sx+sw*0.5,sy+sh2*0.45,7),(1,1,1))
-    # LEFT controls: d-pad + analog stick
+    poly(cv,[(sx+sw*0.5,sy+sh2*0.55),(sx+sw*0.5-6,sy+sh2*0.40),(sx+sw*0.5+6,sy+sh2*0.40)],(1,1,1))
+    # LEFT d-pad + stick
     lcx=px-gw/2+2
     cv.fill_solid(cv.rect(lcx-5,midy+14,10,4),(0.55,0.55,0.6))
     cv.fill_solid(cv.rect(lcx-2,midy+11,4,10),(0.55,0.55,0.6))
-    cv.fill_solid(cv.circle_path(lcx,midy-12,6),(0.30,0.30,0.35))
-    cv.fill_solid(cv.circle_path(lcx,midy-12,3.5),AMBER)
-    # RIGHT controls: 4 face buttons + analog stick
+    cv.fill_solid(cv.circle_path(lcx,midy-12,6),(0.28,0.28,0.33))
+    cv.fill_solid(cv.circle_path(lcx,midy-12,3.5),CYAN)
+    # RIGHT buttons + stick
     rcx=px+pw+gw/2-2
-    cv.fill_solid(cv.circle_path(rcx+5,midy+16,3),AMBER)
-    cv.fill_solid(cv.circle_path(rcx-5,midy+16,3),AMBER)
-    cv.fill_solid(cv.circle_path(rcx,midy+21,3),AMBER)
-    cv.fill_solid(cv.circle_path(rcx,midy+11,3),AMBER)
-    cv.fill_solid(cv.circle_path(rcx,midy-12,6),(0.30,0.30,0.35))
-    cv.fill_solid(cv.circle_path(rcx,midy-12,3.5),AMBER)
+    for bx,by2 in ((rcx+5,midy+16),(rcx-5,midy+16),(rcx,midy+21),(rcx,midy+11)):
+        cv.fill_solid(cv.circle_path(bx,by2,3),AMBER)
+    cv.fill_solid(cv.circle_path(rcx,midy-12,6),(0.28,0.28,0.33))
+    cv.fill_solid(cv.circle_path(rcx,midy-12,3.5),CYAN)
     # shoulder triggers
-    cv.fill_solid(cv.rrect_path(px-gw+2,midy+gh/2-4,gw-2,7,3),(0.30,0.30,0.35))
-    cv.fill_solid(cv.rrect_path(px+pw,midy+gh/2-4,gw-2,7,3),(0.30,0.30,0.35))
+    cv.fill_solid(cv.rrect_path(px-gw+2,midy+gh/2-4,gw-2,7,3),(0.28,0.28,0.33))
+    cv.fill_solid(cv.rrect_path(px+pw,midy+gh/2-4,gw-2,7,3),(0.28,0.28,0.33))
 
-    # --- Content (taglines) ---
+    # --- Content: angular product title ---
     cv.layer('Content')
-    cv.ctext(W/2,midy-ph/2-26,'GAMING PHONE CASE',9.5,(1,1,1),True,2.2)
-    cv.ctext(W/2,midy-ph/2-42,'Turn your phone into a console.',8,(0.80,0.78,0.74),False,0.4)
+    cv.ctext(W/2,midy-94,'GAMING PHONE CASE',10,AMBER,True,2.4)
+    cv.ctext(W/2,midy-108,'TURN YOUR PHONE INTO A CONSOLE',6.5,(0.78,0.78,0.82),True,1.4)
 
-    # --- Details ---
+    # --- Details: HUD chip strip ---
     cv.layer('Details')
-    icon_pad(cv,24,H-92,7)
-    cv.text(38,H-95,'PLUG & PLAY',7.5,AMBER,True,0.5)
-    cv.line(16,H-104,W-16,H-104,(0.30,0.24,0.08),0.6)
+    chips=['PLUG & PLAY','LOW LATENCY','ACTIVE COOLING']
+    cx=14
+    for ch in chips:
+        cw2=textw(ch,6,True,0.8)+14
+        poly(cv,[(cx,30),(cx+cw2,30),(cx+cw2-5,42),(cx-5,42)],(0.14,0.12,0.10))
+        poly_stroke(cv,[(cx,30),(cx+cw2,30),(cx+cw2-5,42),(cx-5,42)],AMBER,0.8)
+        cv.text(cx+5,33,ch,6,(0.92,0.9,0.86),True,0.8)
+        cx+=cw2+8
     make_page(cv)
 
 # ============================================================
@@ -338,54 +391,58 @@ def front():
 def back():
     cv=Canvas(W,H)
     cv.layer('Background')
-    sh=cv.axial(0,H,0,0,(0.07,0.06,0.06),(0.03,0.03,0.04))
-    cv.fill_grad(cv.rect(0,0,W,H),sh)
-    glow=cv.radial(W/2,H,0,W/2,H,H*0.4,(0.30,0.20,0.04),(0.05,0.05,0.06))
-    cv.fill_grad(cv.rect(0,0,W,H),glow)
-    cv.fill_solid(cv.rect(0,0,W,8),AMBER)
+    cv.fill_solid(cv.rect(0,0,W,H),(0.05,0.05,0.06))
+    scanlines(cv,W,H,9,(0.10,0.09,0.07),0.5)
+    # left vertical accent bar
+    cv.fill_solid(cv.rect(0,0,12,H),(0.12,0.09,0.03))
+    cv.fill_solid(cv.rect(10,0,2,H),AMBER)
+    cv.fill_solid(cv.rect(0,0,W,7),AMBER)
+    cv.fill_solid(cv.rect(0,0,W,2),CYAN)
+    cv.fill_solid(cv.rect(0,H-7,W,7),AMBER)
+    # rotated HALO callsign on the side bar
+    cv.layers['Background'].append('q %s rg BT /F1 7 Tf 3 Tc 0 1 -1 0 %s %s Tm (%s) Tj ET Q'
+        %(' '.join(f(v) for v in (0.45,0.32,0.10)),f(9),f(H*0.30),esc('HALO  SYSTEM')))
 
     cv.layer('Brand')
-    cv.logo(W/2,H-40,0.62)
+    cv.logo(W/2,H-38,0.60)
 
     cv.layer('Content')
-    # top section: what's inside
+    LX=24
     y=H-78
-    cv.text(20,y,"WHAT'S INSIDE",11,AMBER,True,0.6); y-=18
-    for item in ['1x  HALO Gaming Case','1x  USB-C Cable','1x  Quick Start Guide']:
-        cv.text(24,y,item,8.5,(0.88,0.88,0.9),False,0.2); y-=14
-    y-=12
-    # features
-    cv.text(20,y,'FEATURES',11,AMBER,True,0.6); y-=20
+    heading(cv,LX,y,"IN THE BOX",10); y-=20
+    for item in ['HALO Gaming Case','USB-C Cable','Quick Start Guide']:
+        poly(cv,[(LX+2,y+3),(LX+8,y+3),(LX+5,y+9)],AMBER)  # small triangle bullet
+        cv.text(LX+14,y,item,8.5,(0.88,0.88,0.9),False,0.2); y-=15
+    y-=10
+    heading(cv,LX,y,"LOADOUT",10); y-=24
     feats=[('pad','Console-grade controls'),
            ('bolt','Ultra-low-latency triggers'),
            ('fan','Active cooling fan'),
            ('shield','Drop-proof grip shell')]
     for kind,label in feats:
-        if kind=='pad': icon_pad(cv,28,y+3,7)
-        elif kind=='bolt': icon_bolt(cv,28,y+3,7)
-        elif kind=='fan': icon_fan(cv,28,y+3,7)
-        else: icon_shield(cv,28,y+3,7)
-        cv.text(42,y,label,8.5,(0.9,0.9,0.92),False,0.2); y-=20
+        hexbadge(cv,LX+10,y+3,11,kind)
+        cv.text(LX+28,y,label,8.5,(0.9,0.9,0.92),False,0.2); y-=28
 
-    # tagline immediately below features
+    # angular tagline band
     y-=2
-    cv.line(20,y,W-20,y,(0.30,0.24,0.08),0.6); y-=18
-    cv.ctext(W/2,y,'GAME ANYWHERE',13,AMBER,True,1.2); y-=16
-    cv.ctext(W/2,y,'Snap on the grips and play. Built',8.5,(0.84,0.82,0.78),False,0.2); y-=13
-    cv.ctext(W/2,y,'for serious mobile gamers.',8.5,(0.84,0.82,0.78),False,0.2); y-=14
-    cv.line(20,y,W-20,y,(0.30,0.24,0.08),0.6)
+    poly(cv,[(12,y+4),(W,y+14),(W,y-18),(12,y-28)],(0.14,0.10,0.02))
+    cv.ctext(W/2+6,y-6,'GAME ANYWHERE',13,AMBER,True,1.2)
+    cv.ctext(W/2+6,y-19,'BUILT FOR SERIOUS MOBILE GAMERS',6.5,(0.84,0.82,0.78),True,1.2)
+    y-=40
 
     cv.layer('Details')
-    # specs box immediately below tagline
-    bx=18; bw=W-36; bh=72; by=y-bh-10
-    box=cv.axial(bx,by+bh,bx,by,(0.13,0.12,0.11),(0.08,0.08,0.08))
-    cv.fill_grad(cv.rrect_path(bx,by,bw,bh,8),box)
-    cv.stroke(cv.rrect_path(bx,by,bw,bh,8),(0.30,0.24,0.08),0.7)
-    sy=by+bh-14
-    cv.text(bx+12,sy,'SPECIFICATIONS',8,AMBER,True,0.8); sy-=14
-    for line in ['Connection: USB-C plug-in','Buttons: D-pad, 4x ABXY, dual sticks','Triggers: L/R analog shoulder','Compatible: iPhone 17 Pro Max']:
-        cv.text(bx+12,sy,line,7.5,(0.82,0.82,0.85),False,0.1); sy-=12
-    cv.text(bx+12,by-14,'Level up your phone',7.5,AMBER,True,0.3)
+    # HUD spec panel (bracket corners, not rounded box)
+    bx=18; bw=W-36; bh=96; by=y-bh-6
+    cv.fill_solid(cv.rect(bx,by,bw,bh),(0.10,0.10,0.11))
+    corner_brackets(cv,bx,by,bw,bh,AMBER,L=14,wd=1.4)
+    sy=by+bh-15
+    cv.text(bx+12,sy,'SPECIFICATIONS',8,CYAN,True,1.2); sy-=17
+    statbar(cv,bx+12,sy,bw-24,'LATENCY',0.92); sy-=14
+    statbar(cv,bx+12,sy,bw-24,'GRIP COMFORT',0.85); sy-=14
+    statbar(cv,bx+12,sy,bw-24,'COOLING',0.78); sy-=16
+    cv.text(bx+12,sy,'USB-C  •  D-pad + ABXY + dual sticks  •  L/R triggers',6,(0.7,0.7,0.74),False,0.1); sy-=11
+    cv.text(bx+12,sy,'Compatible: iPhone 17 Pro Max',6,(0.7,0.7,0.74),False,0.1)
+    cv.text(bx,by-14,'> LEVEL UP YOUR PHONE',7.5,AMBER,True,0.4)
     make_page(cv)
 
 front(); back()
