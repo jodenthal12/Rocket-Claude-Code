@@ -237,20 +237,26 @@ def icon_pad(cv,cx,cy,r,c=AMBER):
     cv.fill_solid(cv.circle_path(bxr-r*0.22,cy,r*0.14),c)
     cv.fill_solid(cv.circle_path(bxr,cy+r*0.22,r*0.14),c)
     cv.fill_solid(cv.circle_path(bxr,cy-r*0.22,r*0.14),c)
-def icon_bolt(cv,cx,cy,r,c=AMBER):
-    p=('%s %s m %s %s l %s %s l %s %s l %s %s l %s %s l h'
-       %(f(cx+r*0.15),f(cy+r), f(cx-r*0.5),f(cy-r*0.1), f(cx-r*0.05),f(cy-r*0.1),
-         f(cx-r*0.2),f(cy-r), f(cx+r*0.5),f(cy+r*0.15), f(cx+r*0.05),f(cy+r*0.15)))
-    cv.fill_solid(p,c)
-def icon_fan(cv,cx,cy,r,c=AMBER):
-    cv.stroke(cv.circle_path(cx,cy,r*0.95),c,r*0.14)
-    for i in range(4):
-        a=i*math.pi/2+0.5
-        x1=cx+math.cos(a)*r*0.15; y1=cy+math.sin(a)*r*0.15
-        x2=cx+math.cos(a+0.9)*r*0.75; y2=cy+math.sin(a+0.9)*r*0.75
-        x3=cx+math.cos(a)*r*0.75; y3=cy+math.sin(a)*r*0.75
-        cv.fill_solid('%s %s m %s %s l %s %s l h'%(f(x1),f(y1),f(x2),f(y2),f(x3),f(y3)),c)
-    cv.fill_solid(cv.circle_path(cx,cy,r*0.14),c)
+def icon_joystick(cv,cx,cy,r,c=AMBER):
+    cv.stroke(cv.circle_path(cx,cy,r*0.9),c,r*0.14)
+    cv.fill_solid(cv.circle_path(cx,cy,r*0.42),c)
+    cv.line(cx,cy,cx+r*0.6,cy-r*0.6,c,r*0.16)
+def icon_usb(cv,cx,cy,r,c=AMBER):
+    # USB-C oval plug
+    cv.fill_solid(cv.ellipse_path(cx,cy,r*0.9,r*0.42),c)
+    cv.fill_solid(cv.ellipse_path(cx,cy,r*0.62,r*0.18),(0.10,0.10,0.11))
+def icon_feather(cv,cx,cy,r,c=AMBER):
+    # lightweight feather / chevron-down "light" mark
+    cv.line(cx,cy+r*0.8,cx,cy-r*0.8,c,r*0.16)
+    for dy in (0.5,0.1,-0.3):
+        cv.line(cx,cy+r*dy,cx+r*0.6,cy+r*dy+r*0.25,c,r*0.13)
+        cv.line(cx,cy+r*dy,cx-r*0.6,cy+r*dy+r*0.25,c,r*0.13)
+def icon_detach(cv,cx,cy,r,c=AMBER):
+    # two blocks splitting apart
+    cv.stroke(cv.rrect_path(cx-r*0.95,cy-r*0.6,r*0.7,r*1.2,r*0.18),c,r*0.14)
+    cv.stroke(cv.rrect_path(cx+r*0.25,cy-r*0.6,r*0.7,r*1.2,r*0.18),c,r*0.14)
+    cv.line(cx-r*0.1,cy,cx-r*0.35,cy,c,r*0.12)
+    cv.line(cx+r*0.1,cy,cx+r*0.35,cy,c,r*0.12)
 def icon_shield(cv,cx,cy,r,c=AMBER):
     p=('%s %s m %s %s l %s %s l %s %s %s %s %s %s c %s %s %s %s %s %s c h'
        %(f(cx),f(cy+r), f(cx+r*0.8),f(cy+r*0.45), f(cx+r*0.8),f(cy-r*0.1),
@@ -262,6 +268,16 @@ def icon_shield(cv,cx,cy,r,c=AMBER):
 
 # distinct gaming-style helpers -------------------------------------
 CYAN=(0.10,0.82,0.92)
+# product colors (match SolidWorks render)
+PURPLE=(0.44,0.42,0.74); PURPLE_HI=(0.60,0.58,0.86); PURPLE_LO=(0.26,0.24,0.46)
+RED=(0.80,0.13,0.13); YEL=(0.88,0.72,0.10); TEAL=(0.08,0.42,0.52)
+BODY1=(0.13,0.13,0.15); BODY2=(0.05,0.05,0.06)
+def hero_stick(cv,cx,cy,r):
+    # purple movable joystick with 3D cap
+    cv.fill_solid(cv.ellipse_path(cx,cy-r*0.18,r,r*0.82),PURPLE_LO)
+    cv.fill_solid(cv.circle_path(cx,cy,r*0.92),PURPLE)
+    cv.fill_solid(cv.circle_path(cx,cy+r*0.10,r*0.60),PURPLE_HI)
+    cv.stroke(cv.circle_path(cx,cy,r*0.92),(0.20,0.18,0.34),0.7)
 def poly(cv,pts,c):
     s='%s %s m '%(f(pts[0][0]),f(pts[0][1]))
     for x,y in pts[1:]: s+='%s %s l '%(f(x),f(y))
@@ -291,10 +307,10 @@ def heading(cv,x,y,s,size,c=AMBER,tc=1.0):
 def hexbadge(cv,cx,cy,r,kind):
     poly(cv,hexagon(cx,cy,r),(0.15,0.13,0.11))
     poly_stroke(cv,hexagon(cx,cy,r),AMBER,1.4)
-    if kind=='pad': icon_pad(cv,cx,cy,r*0.5)
-    elif kind=='bolt': icon_bolt(cv,cx,cy,r*0.55)
-    elif kind=='fan': icon_fan(cv,cx,cy,r*0.55)
-    else: icon_shield(cv,cx,cy,r*0.55)
+    if kind=='detach': icon_detach(cv,cx,cy,r*0.55)
+    elif kind=='joy': icon_joystick(cv,cx,cy,r*0.55)
+    elif kind=='usb': icon_usb(cv,cx,cy,r*0.6)
+    else: icon_feather(cv,cx,cy,r*0.55)
 def statbar(cv,x,y,w,label,frac):
     cv.text(x,y+5,label,7,(0.78,0.78,0.82),True,0.4)
     bx=x+w*0.42; bw=w*0.58
@@ -321,61 +337,71 @@ def front():
     cv.layer('Brand')
     cv.logo(W/2,H-46,0.92)
 
-    # --- Product hero inside a HUD targeting frame ---
+    # --- Product hero: landscape Switch-style handheld (matches render) ---
     cv.layer('Product')
-    midy=H*0.44
-    pw=44; ph=120; px=W/2-pw/2; py=midy-ph/2
+    midy=H*0.46
+    DW=232; DH=100; dx0=W/2-DW/2; dy0=midy-DH/2
+    gripw=66; cenw=DW-2*gripw
+    cx0=dx0+gripw  # center section start
     # cyan tech glow behind
-    glow=cv.radial(W/2,midy,0,W/2,midy,ph*0.7,(0.04,0.20,0.24),(0.05,0.05,0.06))
-    cv.fill_grad(cv.rect(0,midy-ph*0.8,W,ph*1.6),glow)
-    # HUD frame + crosshair ticks
-    fx=W/2-58; fw=116; fyt=midy-78; fh=156
+    glow=cv.radial(W/2,midy,0,W/2,midy,DW*0.55,(0.04,0.20,0.24),(0.05,0.05,0.06))
+    cv.fill_grad(cv.rect(0,midy-DH,W,DH*2),glow)
+    # HUD targeting frame
+    fx=W/2-DW/2-10; fw=DW+20; fyt=midy-DH/2-12; fh=DH+24
     corner_brackets(cv,fx,fyt,fw,fh,CYAN,L=18,wd=1.6)
-    cv.line(W/2,fyt-6,W/2,fyt+6,CYAN,1.0)
     cv.line(W/2,fyt+fh-6,W/2,fyt+fh+6,CYAN,1.0)
     cv.line(fx-6,midy,fx+6,midy,CYAN,1.0)
     cv.line(fx+fw-6,midy,fx+fw+6,midy,CYAN,1.0)
-    # grip wings
-    gw=26; gh=78
-    for gx in (px-gw+4, px+pw-4):
-        grip=cv.axial(gx,py+gh,gx+gw,py,(0.20,0.20,0.24),(0.08,0.08,0.10))
-        cv.fill_grad(cv.rrect_path(gx,midy-gh/2,gw,gh,12),grip)
-        cv.stroke(cv.rrect_path(gx,midy-gh/2,gw,gh,12),AMBER,1.0)
-    # phone body
-    body=cv.axial(px,py+ph,px+pw,py,(0.14,0.14,0.17),(0.05,0.05,0.07))
-    cv.fill_grad(cv.rrect_path(px,py,pw,ph,8),body)
-    cv.stroke(cv.rrect_path(px,py,pw,ph,8),(0.45,0.45,0.5),1.2)
-    # screen
-    sx=px+4; sy=py+8; sw=pw-8; sh2=ph-16
-    scr=cv.axial(sx,sy+sh2,sx+sw,sy,(0.06,0.28,0.40),(0.30,0.06,0.10))
-    cv.fill_grad(cv.rrect_path(sx,sy,sw,sh2,4),scr)
-    cv.fill_solid(cv.rect(sx+4,sy+sh2-8,sw*0.4,3),CYAN)
-    cv.fill_solid(cv.rect(sx+4,sy+sh2-14,sw*0.25,3),AMBER)
-    poly(cv,[(sx+sw*0.5,sy+sh2*0.55),(sx+sw*0.5-6,sy+sh2*0.40),(sx+sw*0.5+6,sy+sh2*0.40)],(1,1,1))
-    # LEFT d-pad + stick
-    lcx=px-gw/2+2
-    cv.fill_solid(cv.rect(lcx-5,midy+14,10,4),(0.55,0.55,0.6))
-    cv.fill_solid(cv.rect(lcx-2,midy+11,4,10),(0.55,0.55,0.6))
-    cv.fill_solid(cv.circle_path(lcx,midy-12,6),(0.28,0.28,0.33))
-    cv.fill_solid(cv.circle_path(lcx,midy-12,3.5),CYAN)
-    # RIGHT buttons + stick
-    rcx=px+pw+gw/2-2
-    for bx,by2 in ((rcx+5,midy+16),(rcx-5,midy+16),(rcx,midy+21),(rcx,midy+11)):
-        cv.fill_solid(cv.circle_path(bx,by2,3),AMBER)
-    cv.fill_solid(cv.circle_path(rcx,midy-12,6),(0.28,0.28,0.33))
-    cv.fill_solid(cv.circle_path(rcx,midy-12,3.5),CYAN)
-    # shoulder triggers
-    cv.fill_solid(cv.rrect_path(px-gw+2,midy+gh/2-4,gw-2,7,3),(0.28,0.28,0.33))
-    cv.fill_solid(cv.rrect_path(px+pw,midy+gh/2-4,gw-2,7,3),(0.28,0.28,0.33))
+
+    # LEFT detachable handle (rounded, extends lower)
+    lg=cv.axial(dx0,dy0+DH,dx0,dy0-12,BODY1,BODY2)
+    cv.fill_grad(cv.rrect_path(dx0,dy0-12,gripw+10,DH+12,20),lg)
+    # RIGHT detachable handle
+    rg=cv.axial(dx0+DW,dy0+DH,dx0+DW,dy0-12,BODY1,BODY2)
+    cv.fill_grad(cv.rrect_path(dx0+DW-gripw-10,dy0-12,gripw+10,DH+12,20),rg)
+    # center body (phone holder)
+    cb=cv.axial(cx0,dy0+DH,cx0,dy0,BODY1,BODY2)
+    cv.fill_grad(cv.rrect_path(cx0-2,dy0+4,cenw+4,DH-8,10),cb)
+    # detachable seams (Switch rails)
+    for sxr in (cx0-2, cx0+cenw+2):
+        cv.line(sxr,dy0+10,sxr,dy0+DH-10,(0.32,0.32,0.36),1.2)
+        cv.line(sxr+1,dy0+14,sxr+1,dy0+DH-14,CYAN,0.5)
+    # screen (teal, landscape)
+    sx=cx0+6; sy=dy0+12; sw=cenw-12; sh2=DH-24
+    scr=cv.axial(sx,sy+sh2,sx+sw,sy,(0.06,0.36,0.46),(0.10,0.46,0.56))
+    cv.fill_grad(cv.rrect_path(sx,sy,sw,sh2,6),scr)
+    cv.stroke(cv.rrect_path(sx,sy,sw,sh2,6),(0.04,0.20,0.26),1.0)
+
+    # LEFT controls: purple stick (top), red button (mid), yellow D-pad (bottom)
+    lcx=dx0+gripw*0.5
+    hero_stick(cv,lcx,midy+24,11)
+    cv.fill_solid(cv.circle_path(lcx,midy-2,8),RED)
+    cv.fill_solid(cv.circle_path(lcx-2,midy,8*0.4),(0.95,0.45,0.45))
+    # yellow cross D-pad
+    dcx=lcx; dcy=midy-26
+    cv.fill_solid(cv.rect(dcx-12,dcy-4,24,8),YEL)
+    cv.fill_solid(cv.rect(dcx-4,dcy-12,8,24),YEL)
+    # RIGHT controls: 4 red buttons (top), purple stick (bottom)
+    rcx=dx0+DW-gripw*0.5
+    for bx,by2 in ((rcx+11,midy+18),(rcx-11,midy+18),(rcx,midy+29),(rcx,midy+7)):
+        cv.fill_solid(cv.circle_path(bx,by2,6.5),RED)
+        cv.fill_solid(cv.circle_path(bx-1.5,by2+1.5,2.6),(0.95,0.45,0.45))
+    hero_stick(cv,rcx,midy-22,11)
+    # red shoulder buttons (top inner edge of each handle)
+    cv.fill_solid(cv.rrect_path(cx0-26,dy0+DH-10,18,6,2),RED)
+    cv.fill_solid(cv.rrect_path(cx0+cenw+8,dy0+DH-10,18,6,2),RED)
+    # USB-C ports at bottom of each handle
+    cv.fill_solid(cv.rrect_path(dx0+gripw*0.5-9,dy0-8,18,5,2.5),(0.30,0.30,0.34))
+    cv.fill_solid(cv.rrect_path(dx0+DW-gripw*0.5-9,dy0-8,18,5,2.5),(0.30,0.30,0.34))
 
     # --- Content: angular product title ---
     cv.layer('Content')
-    cv.ctext(W/2,midy-94,'GAMING PHONE CASE',10,AMBER,True,2.4)
-    cv.ctext(W/2,midy-108,'TURN YOUR PHONE INTO A CONSOLE',6.5,(0.78,0.78,0.82),True,1.4)
+    cv.ctext(W/2,midy-DH/2-30,'GAMING PHONE CASE',10,AMBER,True,2.4)
+    cv.ctext(W/2,midy-DH/2-44,'DETACHABLE GRIPS  •  PLAY ANYWHERE',6.5,(0.78,0.78,0.82),True,1.2)
 
     # --- Details: HUD chip strip ---
     cv.layer('Details')
-    chips=['PLUG & PLAY','LOW LATENCY','ACTIVE COOLING']
+    chips=['DETACHABLE','USB-C','LIGHTWEIGHT']
     cx=14
     for ch in chips:
         cw2=textw(ch,6,True,0.8)+14
@@ -410,15 +436,15 @@ def back():
     LX=24
     y=H-78
     heading(cv,LX,y,"IN THE BOX",10); y-=20
-    for item in ['HALO Gaming Case','USB-C Cable','Quick Start Guide']:
+    for item in ['HALO Phone Case','2x Detachable Handles','2x USB-C Cords']:
         poly(cv,[(LX+2,y+3),(LX+8,y+3),(LX+5,y+9)],AMBER)  # small triangle bullet
         cv.text(LX+14,y,item,8.5,(0.88,0.88,0.9),False,0.2); y-=15
     y-=10
     heading(cv,LX,y,"LOADOUT",10); y-=24
-    feats=[('pad','Console-grade controls'),
-           ('bolt','Ultra-low-latency triggers'),
-           ('fan','Active cooling fan'),
-           ('shield','Drop-proof grip shell')]
+    feats=[('detach','Detachable Switch-style handles'),
+           ('joy','Movable joysticks'),
+           ('usb','Dual USB-C connection'),
+           ('feather','Lightweight build')]
     for kind,label in feats:
         hexbadge(cv,LX+10,y+3,11,kind)
         cv.text(LX+28,y,label,8.5,(0.9,0.9,0.92),False,0.2); y-=28
@@ -426,8 +452,8 @@ def back():
     # angular tagline band
     y-=2
     poly(cv,[(12,y+4),(W,y+14),(W,y-18),(12,y-28)],(0.14,0.10,0.02))
-    cv.ctext(W/2+6,y-6,'GAME ANYWHERE',13,AMBER,True,1.2)
-    cv.ctext(W/2+6,y-19,'BUILT FOR SERIOUS MOBILE GAMERS',6.5,(0.84,0.82,0.78),True,1.2)
+    cv.ctext(W/2+6,y-6,'PLAY ANYWHERE',13,AMBER,True,1.2)
+    cv.ctext(W/2+6,y-19,'DETACH THE GRIPS. TAKE THE GAME WITH YOU',6,(0.84,0.82,0.78),True,1.0)
     y-=40
 
     cv.layer('Details')
@@ -437,11 +463,11 @@ def back():
     corner_brackets(cv,bx,by,bw,bh,AMBER,L=14,wd=1.4)
     sy=by+bh-15
     cv.text(bx+12,sy,'SPECIFICATIONS',8,CYAN,True,1.2); sy-=17
-    statbar(cv,bx+12,sy,bw-24,'LATENCY',0.92); sy-=14
-    statbar(cv,bx+12,sy,bw-24,'GRIP COMFORT',0.85); sy-=14
-    statbar(cv,bx+12,sy,bw-24,'COOLING',0.78); sy-=16
-    cv.text(bx+12,sy,'USB-C  •  D-pad + ABXY + dual sticks  •  L/R triggers',6,(0.7,0.7,0.74),False,0.1); sy-=11
-    cv.text(bx+12,sy,'Compatible: iPhone 17 Pro Max',6,(0.7,0.7,0.74),False,0.1)
+    statbar(cv,bx+12,sy,bw-24,'PORTABILITY',0.95); sy-=14
+    statbar(cv,bx+12,sy,bw-24,'GRIP COMFORT',0.88); sy-=14
+    statbar(cv,bx+12,sy,bw-24,'LIGHTWEIGHT',0.90); sy-=16
+    cv.text(bx+12,sy,'Detachable handles  •  Movable joysticks',6,(0.7,0.7,0.74),False,0.1); sy-=11
+    cv.text(bx+12,sy,'Dual USB-C  •  Compatible: iPhone 17 Pro Max',6,(0.7,0.7,0.74),False,0.1)
     cv.text(bx,by-14,'> LEVEL UP YOUR PHONE',7.5,AMBER,True,0.4)
     make_page(cv)
 
